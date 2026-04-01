@@ -7,3 +7,12 @@ dist/
 .DS_Store
 uploads/
 *.log
+
+# Personal PRD, Planning & Architecture Documents
+/*.pdf
+/*.png
+/*.txt
+/Kolte_Patil_API.postman_collection.json
+/Finalportaldoc_Updated_V2.md
+/Kolte_Patil_Production_Architecture.md
+/finaKolte_Patil_PRD.md
