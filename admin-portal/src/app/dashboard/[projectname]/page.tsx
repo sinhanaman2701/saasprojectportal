@@ -27,7 +27,7 @@ export default function ProjectDetail() {
   const handleArchive = async () => {
     if (!confirm(`Are you sure you want to archive ${project.projectName}? This will remove it from the live catalog.`)) return;
     try {
-      const res = await fetch(`https://testportal-o0vn.onrender.com/admin/projects/${project.projectId}`, {
+      const res = await fetch(`http://localhost:3001/admin/projects/${project.projectId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken') || 'prototype-bypass'}` }
       });
@@ -43,7 +43,7 @@ export default function ProjectDetail() {
   };
 
   useEffect(() => {
-    fetch('https://testportal-o0vn.onrender.com/projects/list', {
+    fetch('http://localhost:3001/projects/list', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'access-token': 'prototype-bypass' },
       body: JSON.stringify({ page: "1", limit: "100" })
@@ -55,7 +55,7 @@ export default function ProjectDetail() {
       setProject(found);
       
       if (found) {
-        fetch(`https://testportal-o0vn.onrender.com/projects/${found.projectId}/click`, { method: 'POST' });
+        fetch(`http://localhost:3001/projects/${found.projectId}/click`, { method: 'POST' });
       }
     });
   }, [projectname]);

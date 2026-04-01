@@ -8,7 +8,7 @@ export default function DashboardCatalog() {
   const router = useRouter();
 
   useEffect(() => {
-    fetch('https://testportal-o0vn.onrender.com/projects/list', {
+    fetch('http://localhost:3001/projects/list', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'access-token': 'prototype-bypass' },
       body: JSON.stringify({ page: "1", limit: "100" })

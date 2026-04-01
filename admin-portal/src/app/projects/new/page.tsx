@@ -127,7 +127,7 @@ export default function NewProjectV4() {
 
     const token = localStorage.getItem('adminToken');
     try {
-      const res = await fetch('https://testportal-o0vn.onrender.com/admin/projects', {
+      const res = await fetch('http://localhost:3001/admin/projects', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formPayload
