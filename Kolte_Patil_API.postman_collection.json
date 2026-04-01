@@ -1,0 +1,139 @@
+{
+  "info": {
+    "name": "Kolte Patil Project Portal API (Phase 6 - 16 Parameters)",
+    "description": "The official updated endpoint mappings securely extracting properties utilizing the massive new 16-parameter layout explicitly strictly adhering to V4 schema constraints.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Mobile Consumer Endpoints",
+      "item": [
+        {
+          "name": "1. Fetch Project Listings (Legacy App Payload)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "access-token",
+                "value": "AmzbLArMYQ4Dtg5YgcJcbZlPMgECLaadHWVzl1va5v2rT3AT4UGuOjFvhiEhWoiD",
+                "description": "Legacy Session String (Bypass in Prototype)"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"page\": \"1\",\n  \"limit\": \"10\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:3001/projects/list",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3001",
+              "path": ["projects", "list"]
+            }
+          }
+        },
+        {
+          "name": "2. Track Organic Property Metric (Click View)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3001/projects/1/click",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3001",
+              "path": ["projects", "1", "click"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin Secure Dashboard Actions",
+      "item": [
+        {
+          "name": "1. GET Complete Backend Data Table",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer <JWT_TOKEN>"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:3001/admin/projects",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3001",
+              "path": ["admin", "projects"]
+            }
+          }
+        },
+        {
+          "name": "2. POST Create Form Simulation (Multi-Part)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer <JWT_TOKEN>"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "projectName", "value": "Postman Test Entry", "type": "text" },
+                { "key": "description", "value": "A test insertion via Postman checking the DB.", "type": "text" },
+                { "key": "location", "value": "Pune Central", "type": "text" },
+                { "key": "bedrooms", "value": "3", "type": "text" },
+                { "key": "bathrooms", "value": "2", "type": "text" },
+                { "key": "price", "value": "₹ 82 Lacs", "type": "text" },
+                { "key": "furnishing", "value": "Furnished", "type": "text" },
+                { "key": "floor", "value": "2nd", "type": "text" },
+                { "key": "area", "value": "1500 Sqft", "type": "text" },
+                { "key": "locationIframe", "value": "<iframe ... />", "type": "text" },
+                { "key": "projectStatus", "value": "ONGOING", "type": "text" },
+                { "key": "thumbnailUrl", "value": "https://s3.amazonaws/...jpg", "type": "text" },
+                { "key": "communityAmenities", "value": "[{\"name\":\"Pool\",\"imageUrl\":\"https://s3...\"}]", "type": "text" },
+                { "key": "propertyAmenities", "value": "[{\"name\":\"CCTV\"}]", "type": "text" },
+                { "key": "nearbyPlaces", "value": "[{\"category\":\"Mall\",\"distanceKm\":2.4}]", "type": "text" },
+                { "key": "attachmentsLinks", "value": "[{\"url\":\"https://s3...\"}]", "type": "text" }
+              ]
+            },
+            "url": {
+              "raw": "http://localhost:3001/admin/projects",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3001",
+              "path": ["admin", "projects"]
+            }
+          }
+        },
+        {
+          "name": "3. DELETE Archive Project",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer <JWT_TOKEN>"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:3001/admin/projects/1",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3001",
+              "path": ["admin", "projects", "1"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
