@@ -1,80 +1,117 @@
-# 🏢 Kolte-Patil Project Portal (V4 Prototype)
+# Kolte-Patil Project Portal
 
-This repository contains the prototype implementation of the **Kolte-Patil Portal**, designed specifically to run locally for management review. The application architecture features a decoupled Next.js (React) administrative frontend and a Node.js (Express) backend powered by a PostgreSQL database.
-
----
-
-## 🛑 Prerequisites for Local Execution
-To run this application locally on your machine, you must have the following installed:
-1. **Node.js** (v18.x or higher)
-2. **PostgreSQL** (Running locally on default port `5432`)
-3. **Git**
+A decoupled full-stack CMS for managing real estate listings — **Next.js** admin frontend + **Node.js/Express** backend + **PostgreSQL** database.
 
 ---
 
-## 🛠️ Step 1: Database Setup
-Before starting the servers, you need to create a local PostgreSQL database for the portal to store its properties.
-1. Open your terminal or PGAdmin.
-2. Create an empty PostgreSQL database named **`kolte_patil_portal`**.
-*(Ensure the database is actively running in the background).*
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Next.js 16, React 19, TailwindCSS v4 |
+| Backend | Node.js, Express, TypeScript, Multer |
+| Database | PostgreSQL + Prisma ORM |
+| Auth | JWT (stateless, no expiry) |
 
 ---
 
-## ⚙️ Step 2: Backend API Configuration
-The backend server handles all database transactions, API requests, and physical image uploads.
+## Getting Started
 
-1. Open your terminal and navigate to the backend folder:
-   ```bash
-   cd backend
-   ```
-2. Install all required Node.js dependencies:
-   ```bash
-   npm install
-   ```
-3. Create a `.env` file inside the `/backend` folder. You must provide your local PostgreSQL credentials here. Example:
-   ```env
-   DATABASE_URL="postgresql://postgres:YOUR_PASSWORD@localhost:5432/kolte_patil_portal?schema=public"
-   JWT_SECRET="prototype_secret_key"
-   PORT=3001
-   ```
-   *(Be sure to replace `YOUR_PASSWORD` with your actual local Postgres password).*
-4. Sync the 16-parameter V4 database schema into your newly created database:
-   ```bash
-   npx prisma generate
-   npx prisma db push
-   ```
-5. Start the backend Node server:
-   ```bash
-   npx ts-node src/index.ts
-   ```
-*If successful, the terminal will display: `Kolte Patil Backend API Server running on port 3001`.*
+### 1. Database Setup
 
----
+Create a PostgreSQL database named `kolte_patil_portal` on port `5432`.
 
-## 🌐 Step 3: Frontend Dashboard Configuration
-The frontend is the visual administrative framework built using Next.js. Leave your backend terminal running and open a **new** terminal window.
+### 2. Backend
 
-1. Navigate to the frontend folder:
-   ```bash
-   cd admin-portal
-   ```
-2. Install the React dependencies:
-   ```bash
-   npm install
-   ```
-3. Start the Next.js development server:
-   ```bash
-   npm run dev
-   ```
+```bash
+cd backend
+npm install
+```
+
+Create `.env` in `/backend`:
+```env
+DATABASE_URL="postgresql://postgres:YOUR_PASSWORD@localhost:5432/kolte_patil_portal?schema=public"
+JWT_SECRET="your_secret_key"
+PORT=3001
+```
+
+```bash
+npx prisma generate
+npx prisma db push
+npx ts-node src/index.ts
+```
+
+Server runs on **http://localhost:3001**
+
+### 3. Frontend
+
+```bash
+cd admin-portal
+npm install
+npm run dev
+```
+
+App runs on **http://localhost:3000**
+
+### Credentials
+- **Email:** `admin@koltepatil.test`
+- **Password:** `password123`
 
 ---
 
-## 🚀 Step 4: Access the Live Prototype!
-With both the backend (`3001`) and frontend (`3000`) servers actively running on your machine:
-1. Open Google Chrome (or any modern graphical browser).
-2. Go to: **`http://localhost:3000`**
-3. You will be greeted by the Kolte-Patil admin login screen. The dashboard logic is hard-linked directly to your local background server. You can immediately begin creating, archiving, and editing real estate listings!
+## Project Status
+
+Three values: `ONGOING`, `LATEST`, `COMPLETED`. Set via the dropdown in the new/edit form. Displayed as badges on listing cards and in the detail page header.
 
 ---
 
-*Note: Any image or physical file attachments uploaded via the "New Project" form will be saved securely to the `/backend/uploads` directory on your hard drive for local testing purposes.*
+## Image & File Upload Flow
+
+1. Admin uploads images via the multi-step form
+2. Files are saved to `backend/uploads/` (local storage)
+3. S3 integration planned: swap Multer's local disk storage for AWS S3 — no API/frontend changes needed
+
+---
+
+## API Overview
+
+### Admin API (`/admin/*`) — requires `Authorization: Bearer <JWT_TOKEN>`
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/admin/auth/login` | Login, returns JWT |
+| GET | `/admin/projects` | List all projects (`?includeArchived=true\|false`) |
+| GET | `/admin/projects/:id` | Get single project |
+| POST | `/admin/projects` | Create project (multipart/form-data) |
+| PUT | `/admin/projects/:id` | Update project (multipart/form-data) |
+| PATCH | `/admin/projects/:id` | Toggle archive/active (`{ isArchived: true\|false }`) |
+| DELETE | `/admin/projects/:id` | Archive project (soft-delete) |
+
+### Mobile API (`/projects/*`) — public
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/projects/list` | Paginated active listings for mobile app |
+| POST | `/projects/:id/click` | Track analytics click |
+
+### Postman Collection
+
+Import `KoltePatil_Portal_API.postman_collection.json` for ready-to-use request templates.
+
+---
+
+## Data Model
+
+### Project Fields
+- `projectName`, `description`, `location`, `locationIframe`
+- `bedrooms`, `bathrooms`, `price`, `furnishing`, `area`
+- `bannerImages` — JSON array: `[{url, order, isCover}]`
+- `coverImageUrl` — computed convenience field (first image or `isCover: true`)
+- `projectStatus` — `ONGOING | LATEST | COMPLETED`
+- `project_brochure` — PDF URL
+- `communityAmenities[]`, `propertyAmenities[]`, `nearbyPlaces[]`
+
+### Relational Tables
+- `CommunityAmenity` — `id, projectId, name, imageUrl`
+- `PropertyAmenity` — `id, projectId, name, iconUrl`
+- `NearbyPlace` — `id, projectId, category, distanceKm, iconUrl`
