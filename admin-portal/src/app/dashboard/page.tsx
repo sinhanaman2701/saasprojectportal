@@ -46,7 +46,7 @@ export default function DashboardCatalog() {
 
   useEffect(() => {
     const token = localStorage.getItem('adminToken');
-    fetch(`http://localhost:3001/admin/projects?includeArchived=true`, {
+    fetch(`http://localhost:3002/admin/projects?includeArchived=true`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(r => r.json())

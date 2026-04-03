@@ -98,7 +98,7 @@ export default function EditProjectPage({ params }: EditProjectProps) {
   useEffect(() => {
     const fetchProject = async () => {
       try {
-        const res = await fetch('http://localhost:3001/admin/projects?includeArchived=true', {
+        const res = await fetch('http://localhost:3002/admin/projects?includeArchived=true', {
           headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
         });
         const data = await res.json();
@@ -235,7 +235,7 @@ export default function EditProjectPage({ params }: EditProjectProps) {
 
     try {
       const token = localStorage.getItem('adminToken');
-      const res = await fetch(`http://localhost:3001/admin/projects/${id}`, {
+      const res = await fetch(`http://localhost:3002/admin/projects/${id}`, {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formPayload

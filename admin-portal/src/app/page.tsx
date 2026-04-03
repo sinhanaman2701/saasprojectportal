@@ -14,7 +14,7 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:3001/admin/auth/login', {
+      const res = await fetch('http://localhost:3002/admin/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })

@@ -48,7 +48,7 @@ export default function ProjectDetail() {
 
   const handleArchive = async () => {
     if (!confirm(`Archive "${project.projectName}"? It will be removed from the live catalog.`)) return;
-    const res = await fetch(`http://localhost:3001/admin/projects/${project.id}`, {
+    const res = await fetch(`http://localhost:3002/admin/projects/${project.id}`, {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
     });
@@ -58,7 +58,7 @@ export default function ProjectDetail() {
 
   const handleUnarchive = async () => {
     if (!confirm(`Restore "${project.projectName}" to the live catalog?`)) return;
-    const res = await fetch(`http://localhost:3001/admin/projects/${project.id}`, {
+    const res = await fetch(`http://localhost:3002/admin/projects/${project.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` },
       body: JSON.stringify({ isArchived: false })
@@ -69,7 +69,7 @@ export default function ProjectDetail() {
 
   const handleMakeLive = async () => {
     if (!confirm(`Publish "${project.projectName}" live to the catalog?`)) return;
-    const res = await fetch(`http://localhost:3001/admin/projects/${project.id}`, {
+    const res = await fetch(`http://localhost:3002/admin/projects/${project.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` },
       body: JSON.stringify({ isDraft: false })
@@ -80,7 +80,7 @@ export default function ProjectDetail() {
 
   useEffect(() => {
     const token = localStorage.getItem('adminToken');
-    fetch('http://localhost:3001/admin/projects?includeArchived=true', {
+    fetch('http://localhost:3002/admin/projects?includeArchived=true', {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(r => r.json())

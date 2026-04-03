@@ -351,7 +351,7 @@ export default function NewProjectPage() {
 
     try {
       const token = localStorage.getItem('adminToken');
-      const res = await fetch('http://localhost:3001/admin/projects', {
+      const res = await fetch('http://localhost:3002/admin/projects', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formPayload
