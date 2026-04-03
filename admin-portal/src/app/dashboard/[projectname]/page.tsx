@@ -2,12 +2,13 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
-  ChevronLeft, Share2, Heart, BedDouble, Square, Bath,
+  BedDouble, Square, Bath,
   Armchair, MapPin, Download, Eye, Phone, MessageCircle,
   Hospital, GraduationCap, ShoppingCart, Plane, Train,
   Archive, Pencil, CheckCircle, X, ChevronRight, ChevronLeft as ChevronLeftIcon,
   FileText
 } from 'lucide-react';
+import Header from '@/components/Header';
 
 export default function ProjectDetail() {
   const { projectname } = useParams();
@@ -66,6 +67,17 @@ export default function ProjectDetail() {
     else alert('Failed to restore.');
   };
 
+  const handleMakeLive = async () => {
+    if (!confirm(`Publish "${project.projectName}" live to the catalog?`)) return;
+    const res = await fetch(`http://localhost:3001/admin/projects/${project.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` },
+      body: JSON.stringify({ isDraft: false })
+    });
+    if (res.ok) router.push('/dashboard');
+    else alert('Failed to publish.');
+  };
+
   useEffect(() => {
     const token = localStorage.getItem('adminToken');
     fetch('http://localhost:3001/admin/projects?includeArchived=true', {
@@ -91,31 +103,7 @@ export default function ProjectDetail() {
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
 
-      {/* ── Top Header ── */}
-      <header className="bg-white border-b border-[#E7E5E4] sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.push('/dashboard')}
-              className="flex items-center gap-2 text-sm font-medium text-[#78716C] hover:text-[#1C1917] hover:bg-[#F5F3EF] px-3 py-2 rounded-lg transition-all"
-            >
-              <ChevronLeft size={16} />
-              <span className="hidden sm:inline">Back</span>
-            </button>
-            <img src="/logo.jpg" alt="Kolte Patil" className="h-7 w-auto object-contain" />
-            <span className="text-[#E7E5E4]">|</span>
-            <h1 className="text-sm font-bold text-[#1C1917] truncate max-w-xs">{project.projectName}</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <button className="p-2 text-[#78716C] hover:text-[#1C1917] hover:bg-[#F5F3EF] rounded-lg transition-all">
-              <Share2 size={16} />
-            </button>
-            <button className="p-2 text-[#78716C] hover:text-red-500 hover:bg-red-50 rounded-lg transition-all">
-              <Heart size={16} />
-            </button>
-          </div>
-        </div>
-      </header>
+      <Header />
 
       {/* ── Hero Banner Carousel ── */}
       <div className="relative w-full h-64 md:h-80 bg-[#F5F3EF] overflow-hidden">
@@ -164,7 +152,11 @@ export default function ProjectDetail() {
 
         {/* Status badge */}
         <div className="absolute top-5 left-6">
-          {project.isArchived ? (
+          {project.isDraft ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-[#E7E5E4] text-[#1C1917] shadow">
+              <Pencil size={12} /> Draft
+            </span>
+          ) : project.isArchived ? (
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-red-600 text-white shadow">
               <Archive size={12} /> Archived
             </span>
@@ -396,7 +388,14 @@ export default function ProjectDetail() {
                 >
                   <Pencil size={14} /> Edit Listing
                 </button>
-                {project.isArchived ? (
+                {project.isDraft ? (
+                  <button
+                    onClick={handleMakeLive}
+                    className="w-full flex items-center justify-center gap-2 bg-[#16A34A] hover:bg-[#15803d] text-white py-3 rounded-xl font-semibold text-sm transition-all"
+                  >
+                    <CheckCircle size={14} /> Make Live
+                  </button>
+                ) : project.isArchived ? (
                   <button
                     onClick={handleUnarchive}
                     className="w-full flex items-center justify-center gap-2 bg-green-50 hover:bg-green-100 text-green-700 py-3 rounded-xl font-semibold text-sm transition-all"

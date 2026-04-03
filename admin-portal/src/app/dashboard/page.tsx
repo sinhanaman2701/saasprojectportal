@@ -2,9 +2,10 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  MapPin, LogOut, Plus, Building2, Archive,
+  MapPin, Plus, Building2, Archive,
   TrendingUp, Search, LayoutGrid, List
 } from 'lucide-react';
+import Header from '@/components/Header';
 
 type Project = {
   id: number;
@@ -22,6 +23,7 @@ type Project = {
   projectStatus: string;
   isActive: boolean;
   isArchived: boolean;
+  isDraft: boolean;
   clickCount: number;
   createdAt: string;
   updatedAt: string;
@@ -30,7 +32,7 @@ type Project = {
   nearbyPlaces: { id: number; category: string; distanceKm: number; iconUrl: string | null }[];
 };
 
-type Filter = 'ALL' | 'ACTIVE' | 'ARCHIVED';
+type Filter = 'ALL' | 'ACTIVE' | 'ARCHIVED' | 'DRAFTS';
 type StatusFilter = 'ALL' | 'ONGOING' | 'LATEST' | 'COMPLETED';
 
 export default function DashboardCatalog() {
@@ -43,22 +45,31 @@ export default function DashboardCatalog() {
   const router = useRouter();
 
   useEffect(() => {
-    const includeArchived = activeFilter === 'ARCHIVED' ? 'true' : 'false';
     const token = localStorage.getItem('adminToken');
-    fetch(`http://localhost:3001/admin/projects?includeArchived=${includeArchived}`, {
+    fetch(`http://localhost:3001/admin/projects?includeArchived=true`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(r => r.json())
       .then(data => {
         const projects: Project[] = data.response_data || [];
         setProperties(projects);
-        setFiltered(projects);
+        // Note: filtered array will be automatically updated by the secondary useEffect
       })
       .catch(console.error);
-  }, [activeFilter]);
+  }, []);
 
   useEffect(() => {
     let result = properties;
+
+    if (activeFilter === 'ACTIVE') {
+      result = result.filter(p => !p.isArchived && !p.isDraft);
+    } else if (activeFilter === 'ARCHIVED') {
+      result = result.filter(p => p.isArchived && !p.isDraft);
+    } else if (activeFilter === 'DRAFTS') {
+      result = result.filter(p => p.isDraft);
+    } else if (activeFilter === 'ALL') {
+      result = result.filter(p => !p.isDraft);
+    }
 
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -73,7 +84,7 @@ export default function DashboardCatalog() {
     }
 
     setFiltered(result);
-  }, [search, properties, statusFilter]);
+  }, [search, properties, statusFilter, activeFilter]);
 
   const statusBadge = (p: Project) => {
     if (p.isArchived) return <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-red-50 text-red-600 border border-red-100"><Archive size={11} />Archived</span>;
@@ -85,45 +96,30 @@ export default function DashboardCatalog() {
   const filterPills: { label: string; value: Filter }[] = [
     { label: 'All', value: 'ALL' },
     { label: 'Active', value: 'ACTIVE' },
+    { label: 'Drafts', value: 'DRAFTS' },
     { label: 'Archived', value: 'ARCHIVED' },
   ];
 
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
 
-      {/* ── Top Header ── */}
-      <header className="bg-white border-b border-[#E7E5E4] sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src="/logo.jpg" alt="Kolte Patil" className="h-8 w-auto object-contain" />
-            <span className="hidden sm:inline text-[#A8A29E] text-sm font-medium border-l border-[#E7E5E4] pl-3 ml-1">Admin Portal</span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => { localStorage.clear(); router.push('/'); }}
-              className="flex items-center gap-2 text-sm font-medium text-[#78716C] hover:text-[#1C1917] hover:bg-[#F5F3EF] px-3 py-2 rounded-lg transition-all"
-            >
-              <LogOut size={15} />
-              <span className="hidden sm:inline">Logout</span>
-            </button>
-            <button
-              onClick={() => router.push('/projects/new')}
-              className="flex items-center gap-2 bg-[#C9A84C] hover:bg-[#8B6914] text-white px-4 py-2.5 rounded-lg font-semibold text-sm shadow-sm hover:shadow-md transition-all"
-            >
-              <Plus size={16} />
-              <span>Publish Listing</span>
-            </button>
-          </div>
-        </div>
-      </header>
+      <Header />
 
       <div className="max-w-7xl mx-auto px-6 py-8">
 
         {/* ── Page Title ── */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-extrabold text-[#1C1917] tracking-tight">Project Catalog</h1>
-          <p className="text-[#78716C] mt-1">Manage and curate your real estate listings.</p>
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-3xl font-extrabold text-[#1C1917] tracking-tight">Project Catalog</h1>
+            <p className="text-[#78716C] mt-1">Manage and curate your real estate listings.</p>
+          </div>
+          <button
+            onClick={() => router.push('/projects/new')}
+            className="flex items-center gap-2 bg-[#C9A84C] hover:bg-[#8B6914] text-white px-4 py-2.5 rounded-lg font-semibold text-sm shadow-sm hover:shadow-md transition-all"
+          >
+            <Plus size={16} />
+            <span>Publish Listing</span>
+          </button>
         </div>
 
         {/* ── Filter Bar ── */}

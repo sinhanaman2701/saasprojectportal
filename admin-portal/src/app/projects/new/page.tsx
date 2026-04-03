@@ -1,11 +1,18 @@
 "use client";
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ChevronLeft, CheckCircle, Plus, X, Upload,
-  MapPin, Image as ImageIcon, FileText, GripVertical, Star,
-  StarOff, ArrowRight
+  FileText, GripVertical, Star, StarOff, ArrowRight
 } from 'lucide-react';
+import Header from '@/components/Header';
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragEndEvent
+} from '@dnd-kit/core';
+import {
+  SortableContext, useSortable, rectSortingStrategy, arrayMove as dndArrayMove
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 type Step = 1 | 2 | 3;
@@ -41,10 +48,128 @@ function arrayMove<T>(arr: T[], from: number, to: number): T[] {
   return next;
 }
 
+// ─── Sortable Banner Image Item ─────────────────────────────────────────────
+function SortableBannerItem({
+  banner, onRemove, onSetCover
+}: {
+  banner: { id: string; url: string; isCover: boolean };
+  onRemove: (id: string) => void;
+  onSetCover: (id: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: banner.id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 10 : undefined,
+    minHeight: 110,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`relative rounded-xl border-2 overflow-hidden transition-all ${banner.isCover ? 'border-[#C9A84C]' : 'border-[#E7E5E4]'}`}
+    >
+      <img src={banner.url} alt="Banner" className="w-full h-24 object-cover" />
+
+      {/* Cover badge */}
+      {banner.isCover && (
+        <div className="absolute top-1 left-1 bg-[#C9A84C] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+          <Star size={7} /> Cover
+        </div>
+      )}
+
+      {/* Drag handle */}
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        className="absolute top-1 right-1 bg-white/80 hover:bg-white p-1 rounded-full cursor-grab active:cursor-grabbing touch-none"
+      >
+        <GripVertical size={11} className="text-[#78716C]" />
+      </button>
+
+      {/* Bottom action bar */}
+      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 p-1.5 flex gap-1">
+        {!banner.isCover && (
+          <button
+            type="button"
+            onClick={() => onSetCover(banner.id)}
+            className="flex-1 bg-white/80 hover:bg-white text-[9px] font-bold rounded py-0.5 flex items-center justify-center gap-0.5"
+          >
+            <StarOff size={7} /> Cover
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => onRemove(banner.id)}
+          className="flex-1 bg-red-500/80 hover:bg-red-500 text-white text-[9px] font-bold rounded py-0.5"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Sortable Nearby Place Item ───────────────────────────────────────────────
+function SortableNearbyItem({
+  place, idx, onUpdate
+}: {
+  place: { id: string; category: string; distance: string; unit: 'km' | 'm' };
+  idx: number;
+  onUpdate: (id: string, field: 'distance' | 'unit', val: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: place.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-2 rounded-lg bg-[#FAFAF8] p-2.5 border border-[#E7E5E4]"
+    >
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        className="text-[#A8A29E] hover:text-[#78716C] cursor-grab active:cursor-grabbing shrink-0 touch-none"
+      >
+        <GripVertical size={13} />
+      </button>
+      <span className="w-5 h-5 rounded-full bg-[#E7E5E4] text-[#78716C] text-[10px] font-bold flex items-center justify-center shrink-0">
+        {idx + 1}
+      </span>
+      <span className="flex-1 text-xs font-semibold text-[#78716C] truncate">{place.category}</span>
+      <input
+        type="number" step="0.1"
+        value={place.distance}
+        onChange={e => onUpdate(place.id, 'distance', e.target.value)}
+        className="w-14 bg-white border border-[#E7E5E4] rounded-md px-2 py-1.5 text-xs text-[#1C1917] text-right focus-visible:border-[#C9A84C] outline-none transition-all"
+        placeholder="0"
+      />
+      <div className="flex border border-[#E7E5E4] rounded-md overflow-hidden shrink-0">
+        {(['km', 'm'] as const).map(u => (
+          <button key={u} type="button" onClick={() => onUpdate(place.id, 'unit', u)}
+            className={`px-2 py-1.5 text-[10px] font-bold transition-all ${place.unit === u ? 'bg-[#1C1917] text-white' : 'bg-white text-[#78716C]'}`}>
+            {u}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Styles ──────────────────────────────────────────────────────────────────
-const inputClass = "flex h-11 w-full rounded-lg border border-[#E7E5E4] bg-white/50 px-3 py-2 text-sm text-[#1C1917] placeholder:text-[#A8A29E] transition-all focus-visible:border-[#C9A84C] focus-visible:ring-[3px] focus-visible:ring-[#C9A84C]/20 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50";
+const inputClass = "flex h-11 w-full rounded-lg border border-[#E7E5E4] bg-white px-3 py-2 text-sm text-[#1C1917] placeholder:text-[#A8A29E] transition-all focus-visible:border-[#C9A84C] focus-visible:ring-[3px] focus-visible:ring-[#C9A84C]/20 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50";
 const labelClass = "text-sm font-medium leading-none text-[#78716C]";
-const sectionTitleClass = "text-base font-semibold text-[#1C1917]";
+const sectionTitleClass = "text-base font-bold text-[#1C1917]";
 
 // ─── Step Labels ─────────────────────────────────────────────────────────────
 const stepLabels = [
@@ -52,6 +177,24 @@ const stepLabels = [
   { n: 2 as Step, label: 'Details' },
   { n: 3 as Step, label: 'Location & Attachments' },
 ];
+
+// ─── Auto-resizing Textarea ──────────────────────────────────────────────────
+function AutoResizeTextarea({ value, onChange, placeholder, name, rows = 3 }: {
+  value: string; onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  placeholder?: string; name?: string; rows?: number;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const adjust = useCallback(() => {
+    if (ref.current) { ref.current.style.height = 'auto'; ref.current.style.height = ref.current.scrollHeight + 'px'; }
+  }, []);
+  return (
+    <textarea ref={ref} name={name} value={value} onChange={(e) => { onChange(e); adjust(); }} rows={rows}
+      placeholder={placeholder}
+      className={`${inputClass} resize-none overflow-hidden min-h-[80px]`}
+      style={{ height: 'auto' }}
+    />
+  );
+}
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 export default function NewProjectPage() {
@@ -75,12 +218,12 @@ export default function NewProjectPage() {
   const [nearbyPlaces, setNearbyPlaces] = useState(
     DEFAULT_NEARBY_PLACES.map(cat => ({ id: Math.random().toString(36).slice(2), category: cat, distance: '', unit: 'km' as 'km' | 'm' }))
   );
+  const [selectedNearbyPlaces, setSelectedNearbyPlaces] = useState<string[]>([]);
   const [brochureFile, setBrochureFile] = useState<File | null>(null);
 
   // Drag states
   const [commDragIdx, setCommDragIdx] = useState<number | null>(null);
   const [propDragIdx, setPropDragIdx] = useState<number | null>(null);
-  const [nearbyDragIdx, setNearbyDragIdx] = useState<number | null>(null);
 
   const handleTextChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -129,18 +272,37 @@ export default function NewProjectPage() {
     setPropDragIdx(null);
   };
 
-  // ── Nearby handlers ───────────────────────────────────────────────────────
-  const updateNearby = (idx: number, field: 'distance' | 'unit', val: string) => {
-    const updated = [...nearbyPlaces];
-    if (field === 'distance') updated[idx].distance = val;
-    if (field === 'unit') updated[idx].unit = val as 'km' | 'm';
-    setNearbyPlaces(updated);
+  const toggleNearby = (id: string) => {
+    setSelectedNearbyPlaces(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
   };
-  const onNearbyDragStart = (idx: number) => setNearbyDragIdx(idx);
-  const onNearbyDrop = (to: number) => {
-    if (nearbyDragIdx === null || nearbyDragIdx === to) return;
-    setNearbyPlaces(prev => arrayMove(prev, nearbyDragIdx, to));
-    setNearbyDragIdx(null);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const handleBannerDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setBannerImages(prev => {
+      const oldIdx = prev.findIndex(b => b.id === active.id);
+      const newIdx = prev.findIndex(b => b.id === over.id);
+      return dndArrayMove(prev, oldIdx, newIdx);
+    });
+  };
+
+  const handleNearbyDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    // Only reorder among selected places
+    setNearbyPlaces(prev => {
+      const oldIdx = prev.findIndex(p => p.id === active.id);
+      const newIdx = prev.findIndex(p => p.id === over.id);
+      return dndArrayMove(prev, oldIdx, newIdx);
+    });
+  };
+
+  const updateNearbyById = (id: string, field: 'distance' | 'unit', val: string) => {
+    setNearbyPlaces(prev => prev.map(p => p.id === id ? { ...p, [field]: val } : p));
   };
 
   // ── Validation ─────────────────────────────────────────────────────────────
@@ -152,20 +314,20 @@ export default function NewProjectPage() {
     if (!formData.area.trim()) return 'Carpet area is required.';
     if (!formData.description.trim()) return 'Description is required.';
     if (bannerImages.length === 0) return 'At least 1 banner image is required.';
-    const filledNearby = nearbyPlaces.filter(p => p.distance.trim());
-    if (filledNearby.length === 0) return 'At least 1 nearby place with distance is required.';
+    if (selectedNearbyPlaces.length === 0) return 'Select at least 1 nearby place.';
     if (!brochureFile) return 'Brochure PDF is required.';
     return null;
   };
 
   // ── Submit ─────────────────────────────────────────────────────────────────
-  const handleSubmit = async () => {
+  const handleSubmit = async (isDraft: boolean = false) => {
     if (isSubmitting) return;
     const err = validate();
     if (err) { setError(err); window.scrollTo(0, 0); return; }
     setIsSubmitting(true);
     setLoading(true);
     const formPayload = new FormData();
+    formPayload.append('isDraft', isDraft ? 'true' : 'false');
     Object.entries(formData).forEach(([key, val]) => {
       formPayload.append(key, key === 'price' && val.trim() ? `₹ ${val}` : val);
     });
@@ -182,9 +344,9 @@ export default function NewProjectPage() {
 
     formPayload.append('propertyAmenities', JSON.stringify(selectedPropertyAmenities));
 
-    const cleanNearby = nearbyPlaces.filter(p => p.category && p.distance.trim()).map(p => ({
-      category: p.category, distance: p.distance, unit: p.unit,
-    }));
+    const cleanNearby = nearbyPlaces
+      .filter(p => selectedNearbyPlaces.includes(p.id) && p.category)
+      .map(p => ({ category: p.category, distance: p.distance, unit: p.unit }));
     formPayload.append('nearbyPlaces', JSON.stringify(cleanNearby));
 
     try {
@@ -204,55 +366,49 @@ export default function NewProjectPage() {
   const progress = (step / 3) * 100;
 
   return (
-    <div className="min-h-screen bg-[#FAFAF8] flex flex-col">
+    <div className="min-h-screen bg-[#FAFAF8]">
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <header className="bg-white border-b border-[#E7E5E4] sticky top-0 z-50">
-        <div className="max-w-xl mx-auto px-6 h-14 flex items-center justify-between">
-          <button onClick={() => router.push('/dashboard')} className="flex items-center gap-1.5 text-sm font-medium text-[#78716C] hover:text-[#1C1917] transition-colors">
-            <ChevronLeft size={16} /> Cancel
+      <Header />
+
+      {/* ── Sub-header: Title + Stepper ── */}
+      <div className="bg-white border-b border-[#E7E5E4]">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+          <h1 className="text-base font-bold text-[#1C1917]">Publish Listing</h1>
+          <button onClick={() => router.push('/dashboard')} className="flex items-center gap-1.5 text-sm font-medium text-[#78716C] hover:text-[#1C1917] hover:bg-[#F5F3EF] px-3 py-2 rounded-lg transition-all">
+            <ChevronLeft size={15} /> Cancel
           </button>
-          <h1 className="text-sm font-semibold text-[#1C1917]">Publish Listing</h1>
-          <div className="w-16" />
         </div>
 
-        {/* ── Stepper ────────────────────────────────────────────────────── */}
-        <div className="max-w-xl mx-auto px-6 pb-4">
-          <div className="flex items-center justify-center gap-3">
+        {/* ── Stepper (pill style) ── */}
+        <div className="max-w-7xl mx-auto px-6 pb-5">
+          <div className="flex items-center gap-2">
             {stepLabels.map(({ n, label }, idx) => (
-              <div key={n} className="flex items-center gap-3">
+              <React.Fragment key={n}>
                 <button
                   onClick={() => n < step && setStep(n)}
                   disabled={n > step}
-                  className={`group relative flex h-9 w-9 items-center justify-center rounded-full transition-all duration-500 disabled:cursor-not-allowed ${
-                    n < step ? 'bg-[#16A34A] text-white' :
-                    n === step ? 'bg-[#1C1917] text-white shadow-[0_0_20px_-5px_rgba(0,0,0,0.25)]' :
-                    'bg-[#E7E5E4]/60 text-[#A8A29E]'
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold border transition-all ${
+                    n < step ? 'bg-[#16A34A] text-white border-[#16A34A] cursor-pointer' :
+                    n === step ? 'bg-[#1C1917] text-white border-[#1C1917] cursor-default' :
+                    'bg-white text-[#A8A29E] border-[#E7E5E4] cursor-not-allowed'
                   }`}
                 >
-                  {n < step ? <CheckCircle size={16} strokeWidth={2.5} /> : <span className="text-sm font-medium tabular-nums">{n}</span>}
-                  {n === step && <div className="absolute inset-0 rounded-full bg-[#1C1917]/20 blur-md animate-pulse" />}
+                  {n < step ? <CheckCircle size={13} strokeWidth={2.5} /> : null}
+                  <span>{label}</span>
                 </button>
-                <span className={`text-xs font-medium hidden sm:block ${n === step ? 'text-[#1C1917]' : 'text-[#A8A29E]'}`}>{label}</span>
                 {idx < stepLabels.length - 1 && (
-                  <div className="relative h-[1.5px] w-12">
-                    <div className="absolute inset-0 bg-[#E7E5E4]" />
-                    <div className="absolute inset-0 bg-[#1C1917]/30 transition-all duration-700 ease-out origin-left" style={{ transform: `scaleX(${n < step ? 1 : 0})` }} />
+                  <div className="flex-1 h-[2px] rounded-full bg-[#E7E5E4] overflow-hidden">
+                    <div className="h-full bg-[#16A34A] transition-all duration-500 ease-out" style={{ width: `${n < step ? 100 : 0}%` }} />
                   </div>
                 )}
-              </div>
+              </React.Fragment>
             ))}
           </div>
-
-          {/* Progress bar */}
-          <div className="mt-4 overflow-hidden rounded-full bg-[#E7E5E4]/40 h-[2px]">
-            <div className="h-full bg-gradient-to-r from-[#1C1917]/60 to-[#1C1917] transition-all duration-1000 ease-out" style={{ width: `${progress}%` }} />
-          </div>
         </div>
-      </header>
+      </div>
 
-      {/* ── Form Body ────────────────────────────────────────────────────── */}
-      <div className="flex-1 max-w-xl mx-auto w-full px-6 py-8">
+      {/* ── Form Body (full width, card layout) ── */}
+      <div className="max-w-7xl mx-auto px-6 py-8">
 
         {error && (
           <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 font-medium flex items-center gap-2">
@@ -264,73 +420,82 @@ export default function NewProjectPage() {
             STEP 1 — Property Info
         ════════════════════════════════════════════════ */}
         {step === 1 && (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+          <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
 
-            {/* 1. Banner */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className={labelClass}>Banner Images <span className="text-red-500">*</span></label>
-                <span className="text-xs text-[#A8A29E]">{bannerImages.length}/3</span>
+            {/* Banner */}
+            <div className="bg-white rounded-xl border border-[#E7E5E4] p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className={sectionTitleClass}>Banner Images <span className="text-red-500">*</span></h2>
+                  <p className="text-xs text-[#A8A29E] mt-0.5">First image is set as cover by default. Drag uploaded images to reorder.</p>
+                </div>
+                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${bannerImages.length === 3 ? 'bg-[#F0E6C8] text-[#8B6914]' : 'bg-[#F5F3EF] text-[#A8A29E]'}`}>
+                  {bannerImages.length}/3
+                </span>
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                {[0, 1, 2].map(idx => {
-                  const banner = bannerImages[idx];
-                  return (
-                    <div
-                      key={idx}
-                      className={`relative rounded-xl border-2 transition-all overflow-hidden ${banner?.isCover ? 'border-[#C9A84C]' : 'border-[#E7E5E4]'}`}
-                      style={{ minHeight: 96 }}
-                    >
-                      {banner ? (
-                        <>
-                          <img src={banner.url} alt={`Banner ${idx + 1}`} className="w-full h-24 object-cover" />
-                          {banner.isCover && (
-                            <div className="absolute top-1 left-1 bg-[#C9A84C] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                              <Star size={7} /> Cover
-                            </div>
-                          )}
-                          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 p-1.5 flex gap-1">
-                            <button onClick={() => { const fi = bannerImages.findIndex(b => b.id === banner.id); if (fi > 0) moveBannerImage(fi, fi - 1); }} disabled={idx === 0} className="flex-1 bg-white/80 hover:bg-white text-[9px] font-bold rounded py-0.5 disabled:opacity-30">←</button>
-                            <button onClick={() => { const fi = bannerImages.findIndex(b => b.id === banner.id); if (fi < bannerImages.length - 1) moveBannerImage(fi, fi + 1); }} disabled={idx === bannerImages.length - 1} className="flex-1 bg-white/80 hover:bg-white text-[9px] font-bold rounded py-0.5 disabled:opacity-30">→</button>
-                            <button onClick={() => removeBannerImage(banner.id)} className="flex-1 bg-red-500/80 hover:bg-red-500 text-white text-[9px] font-bold rounded py-0.5">✕</button>
+
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleBannerDragEnd}>
+                <SortableContext items={bannerImages.map(b => b.id)} strategy={rectSortingStrategy}>
+                  <div className="grid grid-cols-3 gap-4">
+                    {/* Render all 3 slots */}
+                    {[0, 1, 2].map(slotIdx => {
+                      const banner = bannerImages[slotIdx];
+                      if (banner) {
+                        return (
+                          <SortableBannerItem
+                            key={banner.id}
+                            banner={banner}
+                            onRemove={removeBannerImage}
+                            onSetCover={setCoverImage}
+                          />
+                        );
+                      }
+                      // Empty slot — upload placeholder
+                      return (
+                        <label
+                          key={`slot-${slotIdx}`}
+                          className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#E7E5E4] bg-[#FAFAF8] cursor-pointer hover:bg-[#F5F3EF] hover:border-[#C9A84C] transition-all group"
+                          style={{ minHeight: 130 }}
+                        >
+                          <div className="w-10 h-10 rounded-full bg-[#F0E6C8] group-hover:bg-[#E8D9A8] flex items-center justify-center mb-2 transition-colors">
+                            <Upload size={18} className="text-[#C9A84C]" />
                           </div>
-                          {!banner.isCover && (
-                            <button onClick={() => setCoverImage(banner.id)} className="absolute top-1 right-1 bg-white/80 hover:bg-white text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                              <StarOff size={7} /> Cover
-                            </button>
-                          )}
-                        </>
-                      ) : (
-                        <label className="flex flex-col items-center justify-center h-full min-h-[92px] cursor-pointer hover:bg-[#F5F3EF] transition-colors">
-                          <Upload size={16} className="text-[#A8A29E] mb-1" />
-                          <span className="text-[10px] text-[#A8A29E] font-medium">Slot {idx + 1}</span>
-                          <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) addBannerImage(f); }} />
+                          <span className="text-xs font-semibold text-[#78716C]">Image {slotIdx + 1}</span>
+                          <span className="text-[10px] text-[#A8A29E] mt-0.5">Click to upload</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => { const f = e.target.files?.[0]; if (f) addBannerImage(f); e.target.value = ''; }}
+                          />
                         </label>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+                      );
+                    })}
+                  </div>
+                </SortableContext>
+              </DndContext>
             </div>
 
-            {/* 2. Project Name */}
-            <div className="space-y-2">
-              <label className={labelClass}>Project Name <span className="text-red-500">*</span></label>
-              <input name="projectName" value={formData.projectName} onChange={handleTextChange} className={inputClass} placeholder="e.g. Canvas by Kolte Patil" />
-            </div>
 
-            {/* 3. Location */}
-            <div className="space-y-2">
-              <label className={labelClass}>Location <span className="text-red-500">*</span></label>
-              <input name="location" value={formData.location} onChange={handleTextChange} className={inputClass} placeholder="e.g. Hinjewadi, Pune" />
-            </div>
-
-            {/* 4. Price */}
-            <div className="space-y-2">
-              <label className={labelClass}>Starting Price <span className="text-red-500">*</span></label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-[#78716C]">₹</span>
-                <input name="price" value={formData.price} onChange={handleTextChange} className={`${inputClass} pl-8`} placeholder="e.g. 82 Lacs" />
+            {/* Basic Info Card */}
+            <div className="bg-white rounded-xl border border-[#E7E5E4] p-6 space-y-5">
+              <h2 className={sectionTitleClass}>Basic Information</h2>
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className={labelClass}>Project Name <span className="text-red-500">*</span></label>
+                  <input name="projectName" value={formData.projectName} onChange={handleTextChange} className={inputClass} placeholder="e.g. Canvas by Kolte Patil" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className={labelClass}>Location <span className="text-red-500">*</span></label>
+                  <input name="location" value={formData.location} onChange={handleTextChange} className={inputClass} placeholder="e.g. Hinjewadi, Pune" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className={labelClass}>Starting Price <span className="text-red-500">*</span></label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-[#78716C]">₹</span>
+                    <input name="price" value={formData.price} onChange={handleTextChange} className={`${inputClass} pl-8`} placeholder="e.g. 82 Lacs" />
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -341,12 +506,12 @@ export default function NewProjectPage() {
             STEP 2 — Details
         ════════════════════════════════════════════════ */}
         {step === 2 && (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+          <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
 
-            {/* 5. Overview */}
-            <div className="space-y-2">
-              <label className={labelClass}>Overview <span className="text-red-500">*</span></label>
-              <div className="grid grid-cols-2 gap-3">
+            {/* Overview */}
+            <div className="bg-white rounded-xl border border-[#E7E5E4] p-6 space-y-5">
+              <h2 className={sectionTitleClass}>Overview</h2>
+              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <span className="text-xs text-[#A8A29E]">Bedrooms *</span>
                   <input name="bedrooms" type="number" value={formData.bedrooms} onChange={handleTextChange} className={inputClass} placeholder="e.g. 3" />
@@ -370,9 +535,9 @@ export default function NewProjectPage() {
               </div>
             </div>
 
-            {/* 5b. Project Status */}
-            <div className="space-y-2">
-              <label className={labelClass}>Project Status</label>
+            {/* Project Status */}
+            <div className="bg-white rounded-xl border border-[#E7E5E4] p-6 space-y-3">
+              <h2 className={sectionTitleClass}>Project Status</h2>
               <div className="flex gap-3">
                 {(['ONGOING', 'LATEST', 'COMPLETED'] as const).map(status => (
                   <button
@@ -391,16 +556,16 @@ export default function NewProjectPage() {
               </div>
             </div>
 
-            {/* 6. Description */}
-            <div className="space-y-2">
-              <label className={labelClass}>Description <span className="text-red-500">*</span></label>
-              <textarea name="description" value={formData.description} onChange={handleTextChange} rows={4} className={`${inputClass} resize-none`} placeholder="Describe the project, highlights, and what makes it unique..." />
+            {/* Description */}
+            <div className="bg-white rounded-xl border border-[#E7E5E4] p-6 space-y-3">
+              <h2 className={sectionTitleClass}>Description <span className="text-red-500">*</span></h2>
+              <AutoResizeTextarea name="description" value={formData.description} onChange={handleTextChange} placeholder="Describe the project, highlights, and what makes it unique..." rows={4} />
             </div>
 
-            {/* 7. Community Amenities */}
-            <div className="space-y-3">
+            {/* Community Amenities */}
+            <div className="bg-white rounded-xl border border-[#E7E5E4] p-6 space-y-3">
               <div className="flex items-center justify-between">
-                <label className={labelClass}>Community Amenities</label>
+                <h2 className={sectionTitleClass}>Community Amenities</h2>
                 <button type="button" onClick={addCommunity} className="flex items-center gap-1 text-xs font-semibold text-[#C9A84C] hover:text-[#8B6914] transition-colors">
                   <Plus size={12} /> Add
                 </button>
@@ -430,9 +595,9 @@ export default function NewProjectPage() {
               </div>
             </div>
 
-            {/* 8. Property Amenities */}
-            <div className="space-y-3">
-              <label className={labelClass}>Property Amenities</label>
+            {/* Property Amenities */}
+            <div className="bg-white rounded-xl border border-[#E7E5E4] p-6 space-y-3">
+              <h2 className={sectionTitleClass}>Property Amenities</h2>
               <p className="text-xs text-[#A8A29E] -mt-1">Select which apply, drag checked items to reorder priority.</p>
               <div className="grid grid-cols-2 gap-2">
                 {DEFAULT_PROPERTY_AMENITIES.map(name => {
@@ -471,54 +636,71 @@ export default function NewProjectPage() {
             STEP 3 — Location & Attachments
         ════════════════════════════════════════════════ */}
         {step === 3 && (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+          <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
 
-            {/* 9. Nearby Places */}
-            <div className="space-y-3">
-              <label className={labelClass}>Nearby Places</label>
-              <p className="text-xs text-[#A8A29E] -mt-1">Set distance, choose unit (km or m), drag to reorder.</p>
-              <div className="space-y-2">
-                {nearbyPlaces.map((pl, idx) => (
-                  <div
-                    key={pl.id}
-                    draggable
-                    onDragStart={() => onNearbyDragStart(idx)}
-                    onDragOver={(e) => { e.preventDefault(); }}
-                    onDrop={() => onNearbyDrop(idx)}
-                    className={`flex items-center gap-3 rounded-xl bg-[#FAFAF8] p-3 border border-[#E7E5E4] ${nearbyDragIdx === idx ? 'opacity-50' : ''}`}
-                  >
-                    <GripVertical size={13} className="text-[#A8A29E] cursor-grab shrink-0" />
-                    <span className="w-28 text-sm font-semibold text-[#78716C] shrink-0 truncate">{pl.category}</span>
-                    <input
-                      type="number" step="0.1"
-                      value={pl.distance}
-                      onChange={e => updateNearby(idx, 'distance', e.target.value)}
-                      className="w-20 bg-white border border-[#E7E5E4] rounded-lg px-3 py-2 text-sm text-[#1C1917] text-right focus-visible:border-[#C9A84C] focus-visible:ring-[3px] focus-visible:ring-[#C9A84C]/20 outline-none transition-all"
-                      placeholder="0"
-                    />
-                    <div className="flex border border-[#E7E5E4] rounded-lg overflow-hidden shrink-0">
-                      {(['km', 'm'] as const).map(u => (
-                        <button key={u} type="button" onClick={() => updateNearby(idx, 'unit', u)}
-                          className={`px-3 py-2 text-xs font-bold transition-all ${pl.unit === u ? 'bg-[#1C1917] text-white' : 'bg-white text-[#78716C]'}`}>
-                          {u}
-                        </button>
-                      ))}
+            {/* Nearby Places */}
+            <div className="bg-white rounded-xl border border-[#E7E5E4] p-6 space-y-3">
+              <h2 className={sectionTitleClass}>Nearby Places</h2>
+              <p className="text-xs text-[#A8A29E] -mt-1">Select which apply and enter distance. Drag selected items to reorder priority.</p>
+
+              {/* All places as toggleable checkboxes */}
+              <div className="grid grid-cols-2 gap-2">
+                {nearbyPlaces.map(pl => {
+                  const isSelected = selectedNearbyPlaces.includes(pl.id);
+                  return (
+                    <div
+                      key={pl.id}
+                      onClick={() => toggleNearby(pl.id)}
+                      className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 border cursor-pointer transition-all ${
+                        isSelected ? 'bg-[#FBF8F0] border-[#C9A84C] text-[#1C1917]' : 'bg-white border-[#E7E5E4] text-[#A8A29E] hover:border-[#D6D3D1]'
+                      }`}
+                    >
+                      <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-all ${isSelected ? 'bg-[#C9A84C] border-[#C9A84C]' : 'border-[#D6D3D1]'}`}>
+                        {isSelected && <CheckCircle size={9} className="text-white" />}
+                      </div>
+                      <span className="text-xs font-medium flex-1 leading-tight">{pl.category}</span>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
+
+              {/* Distance inputs for selected places only — sortable */}
+              {selectedNearbyPlaces.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-[#E7E5E4]">
+                  <p className="text-xs font-semibold text-[#78716C] mb-2">Set distances — drag to reorder priority</p>
+                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleNearbyDragEnd}>
+                    <SortableContext
+                      items={nearbyPlaces.filter(p => selectedNearbyPlaces.includes(p.id)).map(p => p.id)}
+                      strategy={rectSortingStrategy}
+                    >
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {nearbyPlaces
+                          .filter(p => selectedNearbyPlaces.includes(p.id))
+                          .map((pl, idx) => (
+                            <SortableNearbyItem
+                              key={pl.id}
+                              place={pl}
+                              idx={idx}
+                              onUpdate={updateNearbyById}
+                            />
+                          ))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                </div>
+              )}
             </div>
 
-            {/* 10. Location Iframe */}
-            <div className="space-y-2">
-              <label className={labelClass}>Location Map Embed Link</label>
+            {/* Location Map */}
+            <div className="bg-white rounded-xl border border-[#E7E5E4] p-6 space-y-2">
+              <h2 className={sectionTitleClass}>Location Map Embed Link</h2>
               <input name="locationIframe" value={formData.locationIframe} onChange={handleTextChange} className={inputClass} placeholder="https://www.google.com/maps/embed?pb=..." />
               <p className="text-xs text-[#A8A29E]">Paste a Google Maps embed URL to display the project location on the detail page.</p>
             </div>
 
-            {/* 11. Brochure */}
-            <div className="space-y-2">
-              <label className={labelClass}>Project Brochure (PDF) <span className="text-red-500">*</span></label>
+            {/* Brochure */}
+            <div className="bg-white rounded-xl border border-[#E7E5E4] p-6 space-y-3">
+              <h2 className={sectionTitleClass}>Project Brochure (PDF) <span className="text-red-500">*</span></h2>
               <div className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors ${brochureFile ? 'border-[#C9A84C] bg-[#FBF8F0]' : 'border-[#E7E5E4]'}`}>
                 <input type="file" accept="application/pdf" className="hidden" id="brochure-upload" onChange={e => setBrochureFile(e.target.files?.[0] || null)} />
                 <label htmlFor="brochure-upload" className="cursor-pointer flex flex-col items-center gap-2">
@@ -542,29 +724,45 @@ export default function NewProjectPage() {
           </div>
         )}
 
-        {/* ── Navigation ─────────────────────────────────────────────────────── */}
-        <div className="mt-8 space-y-3">
-          <button
-            type="button"
-            onClick={step < 3 ? () => { setStep((prev => prev + 1) as Step); window.scrollTo(0, 0); } : handleSubmit}
-            disabled={loading}
-            className="w-full h-11 flex items-center justify-center gap-2 rounded-lg bg-[#1C1917] hover:bg-[#2D2926] disabled:opacity-60 text-white text-sm font-medium transition-all hover:shadow-lg"
-          >
-            {loading ? 'Publishing...' : step < 3 ? (
-              <>Continue <ArrowRight size={15} strokeWidth={2} /></>
-            ) : (
-              <>Publish Listing <ArrowRight size={15} strokeWidth={2} /></>
-            )}
-          </button>
-
+        {/* ── Navigation Buttons ── */}
+        <div className="mt-8 flex gap-3">
           {step > 1 && (
             <button
               type="button"
-              onClick={() => { setStep((prev => prev - 1) as Step); window.scrollTo(0, 0); }}
-              className="w-full text-center text-sm text-[#78716C] hover:text-[#1C1917] transition-colors"
+              onClick={() => { setStep(prev => (prev - 1) as Step); window.scrollTo(0, 0); }}
+              className="px-6 h-11 flex items-center justify-center gap-2 rounded-lg border border-[#E7E5E4] bg-white hover:bg-[#F5F3EF] text-[#78716C] text-sm font-medium transition-all"
             >
-              Go back
+              <ChevronLeft size={15} /> Go back
             </button>
+          )}
+
+          {step < 3 ? (
+            <button
+              type="button"
+              onClick={() => { setStep(prev => (prev + 1) as Step); window.scrollTo(0, 0); }}
+              className="flex-1 h-11 flex items-center justify-center gap-2 rounded-lg bg-[#C9A84C] hover:bg-[#8B6914] text-white text-sm font-semibold transition-all shadow-sm hover:shadow-md"
+            >
+              Continue <ArrowRight size={15} strokeWidth={2} />
+            </button>
+          ) : (
+            <div className="flex-1 flex gap-3">
+              <button
+                type="button"
+                onClick={() => handleSubmit(true)}
+                disabled={loading}
+                className="flex-1 h-11 flex items-center justify-center gap-2 rounded-lg bg-[#E7E5E4] hover:bg-[#D6D3D1] disabled:opacity-60 text-[#1C1917] text-sm font-semibold transition-all shadow-sm hover:shadow-md"
+              >
+                {loading ? 'Saving...' : 'Save as Draft'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSubmit(false)}
+                disabled={loading}
+                className="flex-[2] h-11 flex items-center justify-center gap-2 rounded-lg bg-[#C9A84C] hover:bg-[#8B6914] disabled:opacity-60 text-white text-sm font-semibold transition-all shadow-sm hover:shadow-md"
+              >
+                {loading ? 'Publishing...' : <><CheckCircle size={15} strokeWidth={2} /> Publish Listing</>}
+              </button>
+            </div>
           )}
         </div>
 

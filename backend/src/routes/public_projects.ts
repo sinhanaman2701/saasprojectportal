@@ -23,7 +23,7 @@ router.post('/list', async (req, res) => {
 
     const skip = (page - 1) * limit;
 
-    const whereClause = { isActive: true, isArchived: false };
+    const whereClause: any = req.body.includeArchived ? { isDraft: false } : { isActive: true, isArchived: false, isDraft: false };
 
     const [totalItems, projects] = await prisma.$transaction([
       prisma.project.count({ where: whereClause }),

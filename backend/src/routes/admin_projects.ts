@@ -125,6 +125,8 @@ router.post('/', upload.any(), async (req: any, res) => {
         area: area || '',
         locationIframe: locationIframe || '',
         projectStatus: projectStatus || 'ONGOING',
+        isActive: req.body.isDraft === 'true' ? false : true,
+        isDraft: req.body.isDraft === 'true',
         bannerImages: JSON.stringify(bannerImages),
         project_brochure: brochureUrl,
         createdBy: adminId,
@@ -248,7 +250,7 @@ router.put('/:id', upload.any(), async (req: any, res) => {
 router.patch('/:id', async (req: any, res) => {
   try {
     const { id } = req.params;
-    const { isActive, isArchived } = req.body;
+    const { isActive, isArchived, isDraft } = req.body;
     const adminId = req.user.id;
 
     const dataObj: any = { updatedBy: adminId };
@@ -257,6 +259,13 @@ router.patch('/:id', async (req: any, res) => {
       dataObj.isArchived = isArchived;
       if (isArchived === true) dataObj.isActive = false;
       if (isArchived === false) dataObj.isActive = true;
+    }
+    if (isDraft !== undefined) {
+      dataObj.isDraft = isDraft;
+      if (isDraft === false) {
+        dataObj.isActive = true;
+        dataObj.isArchived = false;
+      }
     }
 
     const project = await prisma.project.update({ where: { id: parseInt(id) }, data: dataObj });
