@@ -1,317 +1,416 @@
 "use client";
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { 
-  ChevronLeft, Share2, Heart, BedDouble, Square, Bath, 
+import {
+  ChevronLeft, Share2, Heart, BedDouble, Square, Bath,
   Armchair, MapPin, Download, Eye, Phone, MessageCircle,
-  Hospital, GraduationCap, ShoppingCart, Plane, Train, Archive, Pencil
+  Hospital, GraduationCap, ShoppingCart, Plane, Train,
+  Archive, Pencil, CheckCircle, X, ChevronRight, ChevronLeft as ChevronLeftIcon,
+  FileText
 } from 'lucide-react';
 
 export default function ProjectDetail() {
   const { projectname } = useParams();
   const router = useRouter();
   const [project, setProject] = useState<any>(null);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [activeBannerIdx, setActiveBannerIdx] = useState(0);
+
+  // Get banner images array from admin API response (bannerImages is a JSON string)
+  const bannerImages: string[] = [];
+  if (project?.bannerImages) {
+    try {
+      const parsed = typeof project.bannerImages === 'string'
+        ? JSON.parse(project.bannerImages)
+        : project.bannerImages;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        parsed.forEach((b: any) => bannerImages.push(b.url));
+      } else if (project.coverImageUrl) {
+        bannerImages.push(project.coverImageUrl);
+      }
+    } catch {
+      if (project.coverImageUrl) bannerImages.push(project.coverImageUrl);
+    }
+  } else if (project?.coverImageUrl) {
+    bannerImages.push(project.coverImageUrl);
+  }
 
   const getCategoryIcon = (category: string) => {
-    switch(category.toLowerCase()) {
-      case 'hospital': return <Hospital size={24} />;
-      case 'school': return <GraduationCap size={24} />;
-      case 'shopping mall': return <ShoppingCart size={24} />;
-      case 'airport': return <Plane size={24} />;
-      case 'railway station': return <Train size={24} />;
-      default: return <MapPin size={24} />;
+    switch (category.toLowerCase()) {
+      case 'hospital': return <Hospital size={20} />;
+      case 'school': return <GraduationCap size={20} />;
+      case 'shopping mall': return <ShoppingCart size={20} />;
+      case 'airport': return <Plane size={20} />;
+      case 'railway station': return <Train size={20} />;
+      default: return <MapPin size={20} />;
     }
   };
 
   const handleArchive = async () => {
-    if (!confirm(`Are you sure you want to archive ${project.projectName}? This will remove it from the live catalog.`)) return;
-    try {
-      const res = await fetch(`http://localhost:3001/admin/projects/${project.projectId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken') || 'prototype-bypass'}` }
-      });
-      if (res.ok) {
-        router.push('/dashboard');
-      } else {
-        alert('Failed to archive project. Please check permissions.');
-      }
-    } catch (e) {
-      console.error(e);
-      alert('Internal Server Error while archiving.');
-    }
+    if (!confirm(`Archive "${project.projectName}"? It will be removed from the live catalog.`)) return;
+    const res = await fetch(`http://localhost:3001/admin/projects/${project.id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
+    });
+    if (res.ok) router.push('/dashboard');
+    else alert('Failed to archive. Check permissions.');
   };
 
   const handleUnarchive = async () => {
-    if (!confirm(`Restore ${project.projectName} to the live catalog?`)) return;
-    try {
-      const res = await fetch(`http://localhost:3001/admin/projects/${project.projectId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('adminToken') || 'prototype-bypass'}` },
-        body: JSON.stringify({ isArchived: false })
-      });
-      if (res.ok) {
-        router.push('/dashboard');
-      } else {
-        alert('Failed to restore project.');
-      }
-    } catch (e) {
-      console.error(e);
-      alert('Internal Server Error while restoring.');
-    }
+    if (!confirm(`Restore "${project.projectName}" to the live catalog?`)) return;
+    const res = await fetch(`http://localhost:3001/admin/projects/${project.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` },
+      body: JSON.stringify({ isArchived: false })
+    });
+    if (res.ok) router.push('/dashboard');
+    else alert('Failed to restore.');
   };
 
   useEffect(() => {
-    fetch('http://localhost:3001/projects/list', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'access-token': 'prototype-bypass' },
-      body: JSON.stringify({ page: "1", limit: "100", includeArchived: true })
+    const token = localStorage.getItem('adminToken');
+    fetch('http://localhost:3001/admin/projects?includeArchived=true', {
+      headers: { 'Authorization': `Bearer ${token}` }
     })
-    .then(r => r.json())
-    .then(data => {
-      const decodedSearchName = decodeURIComponent(projectname as string).toLowerCase().trim();
-      const found = data.response_data.find((p: any) => p.projectName.toLowerCase().trim() === decodedSearchName);
-      setProject(found);
-      
-      if (found) {
-        fetch(`http://localhost:3001/projects/${found.projectId}/click`, { method: 'POST' });
-      }
-    });
+      .then(r => r.json())
+      .then(data => {
+        const decoded = decodeURIComponent(projectname as string).toLowerCase().trim();
+        const found = data.response_data.find((p: any) => p.projectName.toLowerCase().trim() === decoded);
+        setProject(found);
+      });
   }, [projectname]);
 
   if (!project) return (
-    <div className="min-h-screen flex items-center justify-center bg-white">
-      <div className="animate-pulse flex flex-col items-center">
-        <div className="h-12 w-12 bg-gray-200 rounded-full mb-4"></div>
-        <div className="h-4 w-48 bg-gray-100 rounded"></div>
+    <div className="min-h-screen flex items-center justify-center bg-[#FAFAF8]">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-10 h-10 border-2 border-[#C9A84C] border-t-transparent rounded-full animate-spin" />
+        <p className="text-[#78716C] text-sm font-medium">Loading project...</p>
       </div>
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-[#FDFCF9] text-[#1A1A1A] font-sans pb-12">
-      {/* SECTION 1: Hero Banner */}
-      <div className="relative w-full h-[420px] md:h-[500px] bg-gray-200 overflow-hidden">
-        <img 
-          src={project.attachments?.[0]?.imageUrl || project.thumbnailUrl} 
-          alt={project.projectName} 
-          className="w-full h-full object-cover"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
-        
-        {/* Hero Overlays */}
-        <div className="absolute top-6 left-6 md:left-12 flex space-x-4">
-          <button onClick={() => router.push('/dashboard')} className="p-2 bg-white/20 backdrop-blur-md rounded-full text-white hover:bg-white/40 transition">
-            <ChevronLeft size={24} />
-          </button>
-        </div>
-        
-        <div className="absolute top-6 right-6 md:right-12 flex space-x-3">
-          <button className="p-2 bg-white/20 backdrop-blur-md rounded-full text-white hover:bg-white/40 transition">
-            <Share2 size={20} />
-          </button>
-          <button className="p-2 bg-white/20 backdrop-blur-md rounded-full text-white hover:bg-white/40 transition">
-            <Heart size={20} />
-          </button>
-        </div>
+    <div className="min-h-screen bg-[#FAFAF8]">
 
-        <div className="absolute bottom-10 left-6 md:left-12 text-white">
-          <h1 className="text-4xl md:text-5xl font-bold mb-2">{project.projectName}</h1>
-          <div className="flex items-center text-white/90">
-            <MapPin size={16} className="mr-2" />
-            <span className="text-lg">{project.location}</span>
+      {/* ── Top Header ── */}
+      <header className="bg-white border-b border-[#E7E5E4] sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="flex items-center gap-2 text-sm font-medium text-[#78716C] hover:text-[#1C1917] hover:bg-[#F5F3EF] px-3 py-2 rounded-lg transition-all"
+            >
+              <ChevronLeft size={16} />
+              <span className="hidden sm:inline">Back</span>
+            </button>
+            <img src="/logo.jpg" alt="Kolte Patil" className="h-7 w-auto object-contain" />
+            <span className="text-[#E7E5E4]">|</span>
+            <h1 className="text-sm font-bold text-[#1C1917] truncate max-w-xs">{project.projectName}</h1>
           </div>
+          <div className="flex items-center gap-2">
+            <button className="p-2 text-[#78716C] hover:text-[#1C1917] hover:bg-[#F5F3EF] rounded-lg transition-all">
+              <Share2 size={16} />
+            </button>
+            <button className="p-2 text-[#78716C] hover:text-red-500 hover:bg-red-50 rounded-lg transition-all">
+              <Heart size={16} />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* ── Hero Banner Carousel ── */}
+      <div className="relative w-full h-64 md:h-80 bg-[#F5F3EF] overflow-hidden">
+        {bannerImages.length > 0 ? (
+          <>
+            <img
+              src={bannerImages[activeBannerIdx]}
+              alt={`${project.projectName} - ${activeBannerIdx + 1}`}
+              className="w-full h-full object-cover transition-opacity duration-500"
+            />
+            {bannerImages.length > 1 && (
+              <>
+                <button
+                  onClick={() => setActiveBannerIdx(prev => (prev - 1 + bannerImages.length) % bannerImages.length)}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 w-9 h-9 bg-white/80 hover:bg-white rounded-full flex items-center justify-center shadow-md transition-all"
+                >
+                  <ChevronLeftIcon size={18} className="text-[#1C1917]" />
+                </button>
+                <button
+                  onClick={() => setActiveBannerIdx(prev => (prev + 1) % bannerImages.length)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 w-9 h-9 bg-white/80 hover:bg-white rounded-full flex items-center justify-center shadow-md transition-all"
+                >
+                  <ChevronRight size={18} className="text-[#1C1917]" />
+                </button>
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2">
+                  {bannerImages.map((_, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setActiveBannerIdx(idx)}
+                      className={`rounded-full transition-all ${idx === activeBannerIdx ? 'w-5 h-2 bg-white' : 'w-2 h-2 bg-white/50'}`}
+                    />
+                  ))}
+                </div>
+                <div className="absolute top-4 right-4 bg-black/40 text-white text-xs font-bold px-2.5 py-1 rounded-full">
+                  {activeBannerIdx + 1}/{bannerImages.length}
+                </div>
+              </>
+            )}
+          </>
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-[#A8A29E] text-sm font-medium">No Images</div>
+        )}
+
+        {/* Gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
+
+        {/* Status badge */}
+        <div className="absolute top-5 left-6">
+          {project.isArchived ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-red-600 text-white shadow">
+              <Archive size={12} /> Archived
+            </span>
+          ) : project.projectStatus === 'LATEST' ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-[#C9A84C] text-white shadow">
+              New Launch
+            </span>
+          ) : project.projectStatus === 'COMPLETED' ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-green-600 text-white shadow">
+              <CheckCircle size={12} /> Ready to Move
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-white/90 text-[#1C1917] shadow">
+              Ongoing
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Layout Container */}
-      <div className="max-w-[1320px] mx-auto px-6 md:px-12 mt-8">
-        <div className="flex flex-col lg:flex-row gap-10">
-          
-          {/* LEFT COLUMN: Scrollable Content */}
-          <div className="lg:w-[68%] space-y-12">
-            
-            {/* SECTION 3: Overview */}
-            <section className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
-              <h2 className="text-xl font-bold mb-8 uppercase tracking-wide text-gray-400">Overview</h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-                <div className="flex flex-col items-center md:items-start">
-                  <BedDouble className="text-gray-400 mb-2" size={24} />
-                  <span className="text-sm font-medium text-gray-500 uppercase tracking-tight">Bedrooms</span>
-                  <span className="text-lg font-bold">{project.overview?.bedrooms} BHK</span>
-                </div>
-                <div className="flex flex-col items-center md:items-start">
-                  <Square className="text-gray-400 mb-2" size={24} />
-                  <span className="text-sm font-medium text-gray-500 uppercase tracking-tight">Area</span>
-                  <span className="text-lg font-bold">{project.overview?.area}</span>
-                </div>
-                <div className="flex flex-col items-center md:items-start">
-                  <Armchair className="text-gray-400 mb-2" size={24} />
-                  <span className="text-sm font-medium text-gray-500 uppercase tracking-tight">Furnishing</span>
-                  <span className="text-lg font-bold">{project.overview?.furnishing}</span>
-                </div>
-                <div className="flex flex-col items-center md:items-start">
-                  <Bath className="text-gray-400 mb-2" size={24} />
-                  <span className="text-sm font-medium text-gray-500 uppercase tracking-tight">Bathrooms</span>
-                  <span className="text-lg font-bold">{project.overview?.bathrooms || 2} Bathrooms</span>
-                </div>
+      {/* ── Content Area ── */}
+      <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="flex flex-col lg:flex-row gap-8">
+
+          {/* ── Main Left — Single Section ── */}
+          <div className="flex-1 min-w-0">
+
+            {/* Project Title */}
+            <div className="mb-8">
+              <h1 className="text-3xl md:text-4xl font-extrabold text-[#1C1917] tracking-tight mb-3">
+                {project.projectName}
+              </h1>
+              <div className="flex items-center gap-2 text-[#78716C]">
+                <MapPin size={16} className="shrink-0" />
+                <span className="text-base font-medium">{project.location}</span>
               </div>
-            </section>
+            </div>
 
-
-            {/* SECTION 4: Description */}
-            <section>
-              <h2 className="text-2xl font-bold mb-6">Description</h2>
-              <div className={`text-gray-600 text-lg leading-relaxed max-w-[700px] ${!isExpanded ? 'line-clamp-4' : ''}`}>
-                {project.description}
-              </div>
-              <button 
-                onClick={() => setIsExpanded(!isExpanded)} 
-                className="mt-4 text-[#D4AF37] font-bold hover:underline"
-              >
-                {isExpanded ? 'Read Less' : 'Read More'}
-              </button>
-            </section>
-
-            {/* SECTION 5: Community Amenities */}
-            <section>
-              <h2 className="text-2xl font-bold mb-6">Community Amenities</h2>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                {(project.communityAmenities?.length > 0 ? project.communityAmenities : [
-                  { name: "Swimming pool", imageUrl: "https://images.unsplash.com/photo-1576013551627-0cc20b96c2a7?auto=format&fit=crop&q=80&w=600" },
-                  { name: "Kids Area", imageUrl: "https://images.unsplash.com/photo-1537162809335-5e367808269e?auto=format&fit=crop&q=80&w=600" }
-                ]).map((amenity: any, idx: number) => (
-                  <div key={idx} className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition group">
-                    <div className="h-40 w-full bg-gray-100 overflow-hidden">
-                      <img src={amenity.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition duration-500" alt={amenity.name} />
-                    </div>
-                    <div className="p-4 bg-[#F2EDE4] text-center">
-                      <span className="font-bold text-gray-700">{amenity.name}</span>
-                    </div>
+            {/* ── Key Specs Grid ── */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              {[
+                { icon: BedDouble, label: 'Bedrooms', value: `${project.bedrooms || '—'} BHK` },
+                { icon: Square, label: 'Area', value: project.area || '—' },
+                { icon: Armchair, label: 'Furnishing', value: project.furnishing || '—' },
+                { icon: Bath, label: 'Bathrooms', value: project.bathrooms || '—' },
+              ].map(({ icon: Icon, label, value }) => (
+                <div key={label} className="bg-white rounded-xl border border-[#E7E5E4] p-5 text-center shadow-sm">
+                  <div className="w-10 h-10 bg-[#F5F3EF] rounded-full flex items-center justify-center mx-auto mb-3">
+                    <Icon size={18} className="text-[#C9A84C]" />
                   </div>
-                ))}
-              </div>
-            </section>
+                  <p className="text-xs font-semibold text-[#A8A29E] uppercase tracking-wider mb-1">{label}</p>
+                  <p className="text-base font-bold text-[#1C1917]">{value}</p>
+                </div>
+              ))}
+            </div>
 
-            {/* SECTION 6: Property Amenities */}
-            <section>
-              <h2 className="text-2xl font-bold mb-6">Property Amenities</h2>
-              <div className="flex flex-wrap gap-4">
-                {(project.propertyAmenities?.length > 0 ? project.propertyAmenities : [
-                  { name: "CCTV Cameras" }, { name: "Parking" }
-                ]).map((amenity: any, idx: number) => (
-                  <div key={idx} className="flex items-center px-6 py-4 bg-[#F2EDE4] rounded-xl border border-gray-100 shadow-sm">
-                    <span className="font-bold text-gray-700">{amenity.name}</span>
-                  </div>
-                ))}
+            {/* ── Description ── */}
+            {project.description && (
+              <div className="bg-white rounded-xl border border-[#E7E5E4] p-6 shadow-sm mb-8">
+                <h3 className="text-sm font-bold text-[#A8A29E] uppercase tracking-wider mb-4">Description</h3>
+                <p className="text-[#78716C] leading-relaxed text-base whitespace-pre-wrap">{project.description}</p>
               </div>
-            </section>
+            )}
 
-            {/* SECTION 7: Nearby Places */}
-            <section>
-              <h2 className="text-2xl font-bold mb-6">Nearby Places</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {project.nearbyPlaces?.map((place: any, idx: number) => (
-                  <div key={idx} className="bg-[#F2EDE4] p-6 rounded-2xl flex flex-col items-center text-center">
-                    <div className="mb-4 bg-white p-3 rounded-full text-[#D4AF37]">
-                      {getCategoryIcon(place.category)}
+            {/* ── Community Amenities ── */}
+            {project.communityAmenities && project.communityAmenities.length > 0 && (
+              <div className="mb-8">
+                <h3 className="text-lg font-bold text-[#1C1917] mb-5">Community Amenities</h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {project.communityAmenities.map((am: any) => (
+                    <div key={am.id} className="bg-white rounded-xl border border-[#E7E5E4] overflow-hidden shadow-sm group hover:shadow-md transition-all">
+                      <div className="h-36 bg-[#F5F3EF] overflow-hidden">
+                        {am.imageUrl ? (
+                          <img
+                            src={am.imageUrl}
+                            alt={am.name}
+                            className="w-full h-full object-cover group-hover:scale-110 transition duration-500"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-[#A8A29E] text-sm">No Image</div>
+                        )}
+                      </div>
+                      <div className="p-3.5 text-center">
+                        <span className="text-sm font-semibold text-[#1C1917]">{am.name}</span>
+                      </div>
                     </div>
-                    <span className="text-gray-500 font-medium mb-1">{place.category}</span>
-                    <span className="text-xl font-bold">{place.distanceKm} km</span>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </section>
+            )}
 
-            {/* SECTION 8: Location */}
-            <section>
-              <h2 className="text-2xl font-bold mb-6 text-black">Location</h2>
-              <div className="h-[400px] w-full rounded-2xl overflow-hidden relative shadow-md">
-                <iframe 
-                  src={project.locationIframe || "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d15129.567439545!2d73.7402!3d18.5913!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3bc2bb08e1ec26a3%3A0x7d025b3a4a1d6368!2sHinjewadi%2C%20Pune%2C%20Maharashtra!5e0!3m2!1sen!2sin!4v1620000000000!5m2!1sen!2sin"} 
-                  className="w-full h-full border-0" 
-                  allowFullScreen 
+            {/* ── Property Amenities ── */}
+            {project.propertyAmenities && project.propertyAmenities.length > 0 && (
+              <div className="mb-8">
+                <h3 className="text-lg font-bold text-[#1C1917] mb-5">Property Amenities</h3>
+                <div className="flex flex-wrap gap-3">
+                  {project.propertyAmenities.map((am: any) => (
+                    <div key={am.id} className="flex items-center gap-2.5 bg-white border border-[#E7E5E4] rounded-full px-4 py-2.5 shadow-sm">
+                      <div className="w-2 h-2 bg-[#C9A84C] rounded-full" />
+                      <span className="text-sm font-semibold text-[#1C1917]">{am.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── Nearby Places ── */}
+            {project.nearbyPlaces && project.nearbyPlaces.length > 0 && (
+              <div className="mb-8">
+                <h3 className="text-lg font-bold text-[#1C1917] mb-5">Nearby Places</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {project.nearbyPlaces.map((place: any) => (
+                    <div key={place.id} className="flex items-center gap-4 bg-white border border-[#E7E5E4] rounded-xl p-4 shadow-sm">
+                      <div className="w-11 h-11 bg-[#F5F3EF] rounded-full flex items-center justify-center text-[#C9A84C] shrink-0">
+                        {getCategoryIcon(place.category)}
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-[#A8A29E] uppercase tracking-wider">{place.category}</p>
+                        <p className="text-lg font-extrabold text-[#1C1917]">{place.distanceKm} km</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── Location Map ── */}
+            <div className="mb-8">
+              <h3 className="text-lg font-bold text-[#1C1917] mb-4">Project Location</h3>
+              <div className="h-[420px] rounded-xl overflow-hidden border border-[#E7E5E4] shadow-sm">
+                <iframe
+                  src={project.locationIframe || "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d15129.567439545!2d73.7402!3d18.5913!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3bc2bb08e1ec26a3%3A0x7d025b3a4a1d6368!2sHinjewadi%2C%20Pune%2C%20Maharashtra!5e0!3m2!1sen!2sin!4v1620000000000!5m2!1sen!2sin"}
+                  className="w-full h-full border-0"
+                  allowFullScreen
                   loading="lazy"
-                ></iframe>
-                <div className="absolute bottom-0 w-full p-6 flex justify-center">
-                   <button className="bg-[#F2EDE4] px-8 py-3 rounded-full font-bold shadow-lg hover:bg-white transition text-[#D4AF37]">
-                     View All On Map
-                   </button>
-                </div>
+                />
               </div>
-            </section>
+              {project.location && (
+                <p className="mt-3 text-sm text-[#78716C] font-medium flex items-center gap-2">
+                  <MapPin size={14} className="text-[#C9A84C]" />
+                  {project.location}
+                </p>
+              )}
+            </div>
 
-            {/* SECTION 9: Project Brochure */}
-            <section>
-              <h2 className="text-2xl font-bold mb-6 text-black">Project Brochure</h2>
-              <div className="flex flex-col md:flex-row bg-[#F2EDE4] rounded-2xl overflow-hidden shadow-sm">
-                <div className="md:w-1/2 h-64 bg-gray-300">
-                  <img src={project.thumbnailUrl} className="w-full h-full object-cover grayscale" alt="brochure" />
+            {/* ── Brochure ── */}
+            <div className="mb-8">
+              <h3 className="text-lg font-bold text-[#1C1917] mb-4">Project Brochure</h3>
+              {project.project_brochure ? (
+                <div className="bg-white rounded-xl border border-[#E7E5E4] overflow-hidden shadow-sm">
+                  <div className="h-72 bg-[#F5F3EF] flex flex-col items-center justify-center gap-3">
+                    <div className="w-14 h-14 bg-[#F0E6C8] rounded-full flex items-center justify-center">
+                      <FileText size={24} className="text-[#C9A84C]" />
+                    </div>
+                    <p className="text-sm font-semibold text-[#78716C]">PDF Brochure Available</p>
+                  </div>
+                  <div className="p-6 flex flex-col sm:flex-row gap-3">
+                    <a
+                      href={project.project_brochure}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 flex items-center justify-center gap-2.5 bg-[#1C1917] hover:bg-[#2D2926] text-white py-3 rounded-xl font-semibold text-sm transition-all"
+                    >
+                      <Eye size={16} /> View Brochure
+                    </a>
+                    <a
+                      href={project.project_brochure}
+                      download
+                      className="flex-1 flex items-center justify-center gap-2.5 bg-white border-2 border-[#E7E5E4] hover:border-[#C9A84C] text-[#1C1917] py-3 rounded-xl font-semibold text-sm transition-all"
+                    >
+                      <Download size={16} /> Download PDF
+                    </a>
+                  </div>
                 </div>
-                <div className="md:w-1/2 p-8 flex flex-col justify-center items-center space-y-4">
-                  <button className="w-full bg-[#1A1A1A] text-white py-4 rounded-full font-bold flex items-center justify-center space-x-2">
-                    <Eye size={20} /> <span>View Brochure</span>
-                  </button>
-                  <button className="w-full bg-white text-[#D4AF37] border border-[#D4AF37] py-4 rounded-full font-bold flex items-center justify-center space-x-2">
-                    <Download size={20} /> <span>Download Brochure</span>
-                  </button>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-16 bg-white rounded-xl border border-dashed border-[#E7E5E4]">
+                  <div className="w-14 h-14 bg-[#F5F3EF] rounded-full flex items-center justify-center mb-4">
+                    <X size={22} className="text-[#A8A29E]" />
+                  </div>
+                  <p className="text-[#78716C] font-medium">No brochure has been uploaded for this project.</p>
                 </div>
-              </div>
-            </section>
+              )}
+            </div>
 
           </div>
 
-          {/* RIGHT COLUMN: Sticky Summary Panel */}
-          <div className="lg:w-[32%]">
-            <div className="sticky top-10 bg-white p-10 rounded-2xl shadow-xl border border-gray-100 flex flex-col space-y-8">
-              <div>
-                <h2 className="text-3xl font-bold mb-2">{project.projectName}</h2>
-                <div className="flex items-center text-gray-500">
-                  <MapPin size={14} className="mr-1" />
-                  <span className="text-sm font-medium">{project.location}</span>
-                </div>
+          {/* ── Right Sidebar ── */}
+          <div className="lg:w-80 shrink-0">
+            <div className="sticky top-20 bg-white rounded-xl border border-[#E7E5E4] shadow-md overflow-hidden">
+
+              {/* Price Header */}
+              <div className="p-6 border-b border-[#E7E5E4]">
+                <p className="text-xs font-semibold text-[#A8A29E] uppercase tracking-wider mb-1">Starting Price</p>
+                <p className="text-3xl font-extrabold text-[#C9A84C]">
+                  {project.price || 'On Request'}
+                </p>
               </div>
 
-              <div className="pb-8 border-b border-gray-100">
-                <div className="text-3xl font-bold text-[#D4AF37]">{project.overview?.price || "₹ On Request"}</div>
+              {/* Quick Specs */}
+              <div className="p-5 border-b border-[#E7E5E4] space-y-3">
+                {[
+                  { label: 'Bedrooms', value: `${project.bedrooms || '—'} BHK` },
+                  { label: 'Area', value: project.area || '—' },
+                  { label: 'Furnishing', value: project.furnishing || '—' },
+                  { label: 'Bathrooms', value: project.bathrooms || '—' },
+                  { label: 'Location', value: project.location || '—' },
+                ].map(({ label, value }) => (
+                  <div key={label} className="flex items-center justify-between text-sm">
+                    <span className="text-[#A8A29E] font-medium">{label}</span>
+                    <span className="font-semibold text-[#1C1917]">{value}</span>
+                  </div>
+                ))}
               </div>
 
-              <div className="space-y-6">
-                <div className="flex justify-between items-center text-gray-600">
-                  <span className="font-medium">Bedrooms</span>
-                  <span className="font-bold">{project.overview?.bedrooms} BHK</span>
-                </div>
-                <div className="flex justify-between items-center text-gray-600">
-                  <span className="font-medium">Area</span>
-                  <span className="font-bold">{project.overview?.area}</span>
-                </div>
-                <div className="flex justify-between items-center text-gray-600">
-                  <span className="font-medium">Bathrooms</span>
-                  <span className="font-bold">{project.overview?.bathrooms || 2}</span>
-                </div>
-              </div>
-
-              <div className="flex flex-col space-y-4 pt-4">
-                <button className="w-full bg-[#D4AF37] hover:bg-[#B8962F] text-white py-5 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl transition flex items-center justify-center space-x-2">
-                  <MessageCircle size={20} /> <span>Enquire Now</span>
+              {/* CTA Buttons */}
+              <div className="p-5 space-y-3">
+                <button className="w-full flex items-center justify-center gap-2.5 bg-[#C9A84C] hover:bg-[#8B6914] text-white py-3.5 rounded-xl font-bold text-sm shadow-sm hover:shadow-md transition-all">
+                  <MessageCircle size={16} /> Enquire Now
                 </button>
-                <button className="w-full bg-white border-2 border-[#D4AF37] text-[#D4AF37] hover:bg-[#FDFCF9] py-5 rounded-xl font-bold text-lg transition flex items-center justify-center space-x-2">
-                  <Phone size={20} /> <span>Refer</span>
+                <button className="w-full flex items-center justify-center gap-2.5 bg-white border-2 border-[#E7E5E4] hover:border-[#C9A84C] text-[#1C1917] py-3.5 rounded-xl font-bold text-sm transition-all">
+                  <Phone size={16} /> Refer
                 </button>
-                <div className="pt-4 mt-2 border-t border-gray-100 flex flex-col space-y-3">
-                  <button onClick={() => router.push(`/projects/edit/${project.projectId}`)} className="w-full bg-[#1A1A1A] text-white hover:bg-black py-3 rounded-xl font-bold text-sm transition flex items-center justify-center space-x-2">
-                    <Pencil size={16} /> <span>Edit Listing</span>
+              </div>
+
+              {/* Admin Actions */}
+              <div className="p-5 border-t border-[#E7E5E4] space-y-2.5">
+                <button
+                  onClick={() => router.push(`/projects/edit/${project.id}`)}
+                  className="w-full flex items-center justify-center gap-2 bg-[#1C1917] hover:bg-[#2D2926] text-white py-3 rounded-xl font-semibold text-sm transition-all"
+                >
+                  <Pencil size={14} /> Edit Listing
+                </button>
+                {project.isArchived ? (
+                  <button
+                    onClick={handleUnarchive}
+                    className="w-full flex items-center justify-center gap-2 bg-green-50 hover:bg-green-100 text-green-700 py-3 rounded-xl font-semibold text-sm transition-all"
+                  >
+                    Restore Project
                   </button>
-                  {project.isArchived ? (
-                    <button onClick={handleUnarchive} className="w-full bg-green-50 text-green-700 hover:bg-green-100 py-3 rounded-xl font-bold text-sm transition flex items-center justify-center space-x-2">
-                      <span>Restore Project</span>
-                    </button>
-                  ) : (
-                    <button onClick={handleArchive} className="w-full bg-red-50 text-red-600 hover:bg-red-100 py-3 rounded-xl font-bold text-sm transition flex items-center justify-center space-x-2">
-                      <Archive size={16} /> <span>Archive Project</span>
-                    </button>
-                  )}
-                </div>
+                ) : (
+                  <button
+                    onClick={handleArchive}
+                    className="w-full flex items-center justify-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 py-3 rounded-xl font-semibold text-sm transition-all"
+                  >
+                    <Archive size={14} /> Archive Project
+                  </button>
+                )}
               </div>
             </div>
           </div>

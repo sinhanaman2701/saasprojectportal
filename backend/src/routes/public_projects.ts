@@ -23,7 +23,7 @@ router.post('/list', async (req, res) => {
 
     const skip = (page - 1) * limit;
 
-    const whereClause: any = req.body.includeArchived ? {} : { isActive: true, isArchived: false };
+    const whereClause = { isActive: true, isArchived: false };
 
     const [totalItems, projects] = await prisma.$transaction([
       prisma.project.count({ where: whereClause }),
@@ -41,38 +41,44 @@ router.post('/list', async (req, res) => {
     ]);
 
     // Format rigorously strictly to API Schema Layout explicitly expanding V4 constraints without mutating old expectations
-    const response_data = projects.map(p => ({
-      projectId: p.id,
-      projectName: p.projectName,
-      isArchived: p.isArchived,
-      description: p.description,
-      location: p.location,
-      locationIframe: p.locationIframe,
-      projectStatus: p.projectStatus,
-      thumbnailUrl: p.thumbnailUrl,
-      overview: {
-        bedrooms: p.bedrooms,
-        bathrooms: p.bathrooms,
-        price: p.price,
-        furnishing: p.furnishing,
-        floor: p.floor,
-        area: p.area
-      },
-      project_brochure: p.project_brochure,
-      communityAmenities: p.communityAmenities.map(c => ({
-        name: c.name,
-        imageUrl: c.imageUrl
-      })),
-      propertyAmenities: p.propertyAmenities.map(pa => ({
-        name: pa.name,
-        iconUrl: pa.iconUrl
-      })),
-      nearbyPlaces: p.nearbyPlaces.map(n => ({
-        category: n.category,
-        distanceKm: n.distanceKm,
-        iconUrl: n.iconUrl
-      }))
-    }));
+    const response_data = projects.map(p => {
+      const parsedBannerImages = (() => { try { return JSON.parse(p.bannerImages || '[]'); } catch { return []; } })();
+      const coverImage = parsedBannerImages.find((b: any) => b.isCover) || parsedBannerImages[0];
+      return {
+        projectId: p.id,
+        projectName: p.projectName,
+        description: p.description,
+        location: p.location,
+        locationIframe: p.locationIframe,
+        projectStatus: p.projectStatus,
+        coverImageUrl: coverImage?.url || null,
+        bannerImages: parsedBannerImages,
+        overview: {
+          bedrooms: p.bedrooms,
+          bathrooms: p.bathrooms,
+          price: p.price,
+          furnishing: p.furnishing,
+          area: p.area
+        },
+        project_brochure: p.project_brochure,
+        communityAmenities: p.communityAmenities.map(c => ({
+          id: c.id,
+          name: c.name,
+          imageUrl: c.imageUrl
+        })),
+        propertyAmenities: p.propertyAmenities.map(pa => ({
+          id: pa.id,
+          name: pa.name,
+          iconUrl: pa.iconUrl
+        })),
+        nearbyPlaces: p.nearbyPlaces.map(n => ({
+          id: n.id,
+          category: n.category,
+          distanceKm: n.distanceKm,
+          iconUrl: n.iconUrl
+        }))
+      };
+    });
 
     const totalPages = Math.ceil(totalItems / limit);
 

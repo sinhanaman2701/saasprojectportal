@@ -8,7 +8,6 @@ import adminAuthMiddleware from '../middleware/auth';
 const router = Router();
 const prisma = new PrismaClient();
 
-// MVP S3 Emulator
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = path.join(__dirname, '../../uploads');
@@ -26,65 +25,110 @@ router.use(adminAuthMiddleware);
 
 router.get('/', async (req, res) => {
   try {
+    const includeArchived = req.query.includeArchived === 'true';
+    const whereClause = includeArchived ? {} : { isArchived: false };
     const projects = await prisma.project.findMany({
-      where: { isArchived: false },
+      where: whereClause,
       orderBy: { createdAt: 'desc' },
       include: { communityAmenities: true, propertyAmenities: true, nearbyPlaces: true }
     });
-    res.status(200).json({ status_code: 200, status_message: "Success", response_data: projects });
+    const response_data = projects.map(p => {
+      const parsed = (() => { try { return JSON.parse(p.bannerImages || '[]'); } catch { return []; } })();
+      const coverImage = parsed.find((b: any) => b.isCover) || parsed[0];
+      return { ...p, coverImageUrl: coverImage?.url || null };
+    });
+    res.status(200).json({ status_code: 200, status_message: "Success", response_data });
   } catch (error) {
     res.status(500).json({ status_code: 500, status_message: "Internal Server Error" });
   }
 });
 
-// Natively intercept ANY file format configurations dynamically mapping into our custom S3 relations array.
+router.get('/:id', async (req, res) => {
+  try {
+    const project = await prisma.project.findUnique({
+      where: { id: parseInt(req.params.id) },
+      include: { communityAmenities: true, propertyAmenities: true, nearbyPlaces: true }
+    });
+    if (!project) return res.status(404).json({ status_code: 404, status_message: "Project not found" });
+    const parsed = (() => { try { return JSON.parse(project.bannerImages || '[]'); } catch { return []; } })();
+    const coverImage = parsed.find((b: any) => b.isCover) || parsed[0];
+    res.status(200).json({ status_code: 200, status_message: "Success", response_data: { ...project, coverImageUrl: coverImage?.url || null } });
+  } catch (error) {
+    res.status(500).json({ status_code: 500, status_message: "Internal Server Error" });
+  }
+});
+
 router.post('/', upload.any(), async (req: any, res) => {
   try {
-    const { 
-      projectName, description, location, bedrooms, bathrooms, price, furnishing, floor, area, 
-      locationIframe, projectStatus 
+    const {
+      projectName, description, location, bedrooms, bathrooms, price, furnishing, area,
+      locationIframe, projectStatus
     } = req.body;
-    
-    const adminId = req.user.id; 
+
+    const adminId = req.user.id;
     const files = req.files as Express.Multer.File[] || [];
     const baseUrl = `${req.protocol}://${req.get('host')}/uploads/`;
 
-    // 1. Core Brochure
-    const brochureFile = files.find(f => f.fieldname === 'brochure');
+    // 1. Banner Images — parse the order/cover JSON
+    const bannerImagesRaw = req.body.bannerImages ? JSON.parse(req.body.bannerImages) : [];
+    const bannerImages = bannerImagesRaw.map((item: any, idx: number) => {
+      const file = files.find((f: any) => f.fieldname === `bannerImage_${idx}`);
+      return {
+        url: file ? baseUrl + file.filename : item.url || null,
+        order: idx,
+        isCover: item.isCover === true || item.isCover === 'true'
+      };
+    });
+
+    // 2. Brochure
+    const brochureFile = files.find((f: any) => f.fieldname === 'brochure');
     const brochureUrl = brochureFile ? baseUrl + brochureFile.filename : null;
 
-    // 2. Banner Thumbnail
-    const thumbnailFile = files.find(f => f.fieldname === 'thumbnail');
-    const thumbnailUrl = thumbnailFile ? baseUrl + thumbnailFile.filename : '';
-
-    // 3. (Removed Gallery Array)
-
-    // 4. Community Amenities Injection explicitly mapping dynamic indexes
+    // 3. Community Amenities
     const baseCommunity = req.body.communityAmenities ? JSON.parse(req.body.communityAmenities) : [];
     const communityAmenitiesData = baseCommunity.map((am: any, idx: number) => {
-      const matchedImg = files.find(f => f.fieldname === `communityImage_${idx}`);
+      const matchedImg = files.find((f: any) => f.fieldname === `communityImage_${idx}`);
       return { name: am.name, imageUrl: matchedImg ? baseUrl + matchedImg.filename : null };
     });
 
-    // 5. Property Amenities
-    const baseProperty = req.body.propertyAmenities ? JSON.parse(req.body.propertyAmenities) : [];
-    const propertyAmenitiesData = baseProperty.map((am: any, idx: number) => {
-      const matchedImg = files.find(f => f.fieldname === `propertyIcon_${idx}`);
-      return { name: am.name, iconUrl: matchedImg ? baseUrl + matchedImg.filename : null };
-    });
+    // 4. Property Amenities (ordered string array)
+    const propertyAmenitiesData: { name: string }[] = [];
+    if (req.body.propertyAmenities) {
+      const selected: string[] = JSON.parse(req.body.propertyAmenities);
+      selected.forEach((name: string) => {
+        if (name.trim()) propertyAmenitiesData.push({ name: name.trim() });
+      });
+    }
 
-    // 6. Nearby Distances
-    const baseNearby = req.body.nearbyPlaces ? JSON.parse(req.body.nearbyPlaces) : [];
-    const nearbyPlacesData = baseNearby.map((pl: any, idx: number) => {
-      const matchedImg = files.find(f => f.fieldname === `nearbyIcon_${idx}`);
-      return { category: pl.category, distanceKm: pl.distanceKm, iconUrl: matchedImg ? baseUrl + matchedImg.filename : null };
-    });
+    // 5. Nearby Places (with km/m unit)
+    const nearbyPlacesData: { category: string; distanceKm: number }[] = [];
+    if (req.body.nearbyPlaces) {
+      const places: { category: string; distance: string; unit: string }[] = JSON.parse(req.body.nearbyPlaces);
+      places.forEach((pl) => {
+        if (pl.category && pl.distance) {
+          const dist = parseFloat(pl.distance);
+          const distanceKm = pl.unit === 'm' ? dist / 1000 : dist;
+          nearbyPlacesData.push({ category: pl.category, distanceKm });
+        }
+      });
+    }
 
     const newProject = await prisma.project.create({
       data: {
-        projectName, description, location, bedrooms: parseInt(bedrooms), bathrooms: parseInt(bathrooms), price, furnishing, floor, area, locationIframe, 
-        projectStatus: projectStatus || "ONGOING", 
-        thumbnailUrl, project_brochure: brochureUrl, createdBy: adminId, updatedBy: adminId,
+        projectName,
+        description: description || '',
+        location,
+        bedrooms: parseInt(bedrooms) || 0,
+        bathrooms: bathrooms ? parseInt(bathrooms) : null,
+        price: price || '',
+        furnishing: furnishing || 'Unfurnished',
+        area: area || '',
+        locationIframe: locationIframe || '',
+        projectStatus: projectStatus || 'ONGOING',
+        bannerImages: JSON.stringify(bannerImages),
+        project_brochure: brochureUrl,
+        createdBy: adminId,
+        updatedBy: adminId,
         communityAmenities: { create: communityAmenitiesData },
         propertyAmenities: { create: propertyAmenitiesData },
         nearbyPlaces: { create: nearbyPlacesData }
@@ -99,73 +143,73 @@ router.post('/', upload.any(), async (req: any, res) => {
   }
 });
 
-// Full update for project listings (Handles file fallbacks for images/PDFs)
 router.put('/:id', upload.any(), async (req: any, res) => {
   try {
     const { id } = req.params;
-    const { 
-      projectName, description, location, bedrooms, bathrooms, price, furnishing, floor, area, 
-      locationIframe, projectStatus 
+    const {
+      projectName, description, location, bedrooms, bathrooms, price, furnishing, area,
+      locationIframe, projectStatus
     } = req.body;
-    
-    const adminId = req.user.id; 
+
+    const adminId = req.user.id;
     const files = req.files as Express.Multer.File[] || [];
     const baseUrl = `${req.protocol}://${req.get('host')}/uploads/`;
 
-    // Fetch existing for file fallbacks
-    const existingProject = await prisma.project.findUnique({ 
+    const existingProject = await prisma.project.findUnique({
       where: { id: parseInt(id) },
       include: { communityAmenities: true, propertyAmenities: true, nearbyPlaces: true }
     });
-    
     if (!existingProject) return res.status(404).json({ status_code: 404, status_message: "Project not found" });
 
-    // 1. Core Brochure Wrap
-    const brochureFile = files.find(f => f.fieldname === 'brochure');
+    // 1. Banner Images
+    const bannerImagesRaw = req.body.bannerImages ? JSON.parse(req.body.bannerImages) : [];
+    const bannerImages = bannerImagesRaw.map((item: any, idx: number) => {
+      const file = files.find((f: any) => f.fieldname === `bannerImage_${idx}`);
+      return {
+        url: file ? baseUrl + file.filename : (item.url || null),
+        order: idx,
+        isCover: item.isCover === true || item.isCover === 'true'
+      };
+    });
+
+    // 2. Brochure
+    const brochureFile = files.find((f: any) => f.fieldname === 'brochure');
     const brochureUrl = brochureFile ? baseUrl + brochureFile.filename : existingProject.project_brochure;
 
-    // 2. Banner Thumbnail Wrap
-    const thumbnailFile = files.find(f => f.fieldname === 'thumbnail');
-    const thumbnailUrl = thumbnailFile ? baseUrl + thumbnailFile.filename : existingProject.thumbnailUrl;
-
-    // 3. Community Amenities Logic (Replacement Strategy)
+    // 3. Community Amenities
     const baseCommunity = req.body.communityAmenities ? JSON.parse(req.body.communityAmenities) : [];
     const communityAmenitiesData = baseCommunity.map((am: any, idx: number) => {
-      const matchedImg = files.find(f => f.fieldname === `communityImage_${idx}`);
-      // Fallback to existing image if it's the same name and no new file was uploaded
-      const existing = existingProject.communityAmenities.find(xa => xa.name === am.name);
-      return { 
-        name: am.name, 
-        imageUrl: matchedImg ? baseUrl + matchedImg.filename : (existing ? existing.imageUrl : null) 
+      const matchedImg = files.find((f: any) => f.fieldname === `communityImage_${idx}`);
+      const existing = existingProject.communityAmenities.find((xa: any) => xa.name === am.name);
+      return {
+        name: am.name,
+        imageUrl: matchedImg ? baseUrl + matchedImg.filename : (existing ? existing.imageUrl : null)
       };
     });
 
-    // 4. Property Amenities Logic
-    const baseProperty = req.body.propertyAmenities ? JSON.parse(req.body.propertyAmenities) : [];
-    const propertyAmenitiesData = baseProperty.map((am: any, idx: number) => {
-      const matchedImg = files.find(f => f.fieldname === `propertyIcon_${idx}`);
-      const existing = existingProject.propertyAmenities.find(xa => xa.name === am.name);
-      return { 
-        name: am.name, 
-        iconUrl: matchedImg ? baseUrl + matchedImg.filename : (existing ? existing.iconUrl : null) 
-      };
-    });
+    // 4. Property Amenities
+    const propertyAmenitiesData: { name: string }[] = [];
+    if (req.body.propertyAmenities) {
+      const selected: string[] = JSON.parse(req.body.propertyAmenities);
+      selected.forEach((name: string) => {
+        if (name.trim()) propertyAmenitiesData.push({ name: name.trim() });
+      });
+    }
 
-    // 5. Nearby Places Logic
-    const baseNearby = req.body.nearbyPlaces ? JSON.parse(req.body.nearbyPlaces) : [];
-    const nearbyPlacesData = baseNearby.map((pl: any, idx: number) => {
-      const matchedImg = files.find(f => f.fieldname === `nearbyIcon_${idx}`);
-      const existing = existingProject.nearbyPlaces.find(xa => xa.category === pl.category);
-      return { 
-        category: pl.category, 
-        distanceKm: pl.distanceKm, 
-        iconUrl: matchedImg ? baseUrl + matchedImg.filename : (existing ? existing.iconUrl : null) 
-      };
-    });
+    // 5. Nearby Places
+    const nearbyPlacesData: { category: string; distanceKm: number }[] = [];
+    if (req.body.nearbyPlaces) {
+      const places: { category: string; distance: string; unit: string }[] = JSON.parse(req.body.nearbyPlaces);
+      places.forEach((pl) => {
+        if (pl.category && pl.distance) {
+          const dist = parseFloat(pl.distance);
+          const distanceKm = pl.unit === 'm' ? dist / 1000 : dist;
+          nearbyPlacesData.push({ category: pl.category, distanceKm });
+        }
+      });
+    }
 
-    // Transactional Update & Replace
     const updatedProject = await prisma.$transaction(async (tx) => {
-      // Clear old relational data
       await tx.communityAmenity.deleteMany({ where: { projectId: parseInt(id) } });
       await tx.propertyAmenity.deleteMany({ where: { projectId: parseInt(id) } });
       await tx.nearbyPlace.deleteMany({ where: { projectId: parseInt(id) } });
@@ -173,9 +217,19 @@ router.put('/:id', upload.any(), async (req: any, res) => {
       return tx.project.update({
         where: { id: parseInt(id) },
         data: {
-          projectName, description, location, bedrooms: parseInt(bedrooms), bathrooms: parseInt(bathrooms), price, furnishing, floor, area, locationIframe, 
-          projectStatus: projectStatus || "ONGOING", 
-          thumbnailUrl, project_brochure: brochureUrl, updatedBy: adminId,
+          projectName,
+          description: description || '',
+          location,
+          bedrooms: parseInt(bedrooms) || 0,
+          bathrooms: bathrooms ? parseInt(bathrooms) : null,
+          price: price || '',
+          furnishing: furnishing || 'Unfurnished',
+          area: area || '',
+          locationIframe: locationIframe || '',
+          projectStatus: projectStatus || 'ONGOING',
+          bannerImages: JSON.stringify(bannerImages),
+          project_brochure: brochureUrl,
+          updatedBy: adminId,
           communityAmenities: { create: communityAmenitiesData },
           propertyAmenities: { create: propertyAmenitiesData },
           nearbyPlaces: { create: nearbyPlacesData }
@@ -185,7 +239,6 @@ router.put('/:id', upload.any(), async (req: any, res) => {
     });
 
     res.status(200).json({ status_code: 200, status_message: "Update successful", response_data: updatedProject });
-
   } catch (error) {
     console.error("Update project error:", error);
     res.status(500).json({ status_code: 500, status_message: "Internal Server Error" });
@@ -197,13 +250,13 @@ router.patch('/:id', async (req: any, res) => {
     const { id } = req.params;
     const { isActive, isArchived } = req.body;
     const adminId = req.user.id;
-    
+
     const dataObj: any = { updatedBy: adminId };
     if (isActive !== undefined) dataObj.isActive = isActive;
     if (isArchived !== undefined) {
       dataObj.isArchived = isArchived;
-      if (isArchived === true) dataObj.isActive = false; 
-      if (isArchived === false) dataObj.isActive = true; 
+      if (isArchived === true) dataObj.isActive = false;
+      if (isArchived === false) dataObj.isActive = true;
     }
 
     const project = await prisma.project.update({ where: { id: parseInt(id) }, data: dataObj });
@@ -217,7 +270,7 @@ router.delete('/:id', async (req: any, res) => {
   try {
     const { id } = req.params;
     const adminId = req.user.id;
-    await prisma.project.update({ where: { id: parseInt(id) }, data: { isArchived: true, isActive: false, updatedBy: adminId }});
+    await prisma.project.update({ where: { id: parseInt(id) }, data: { isArchived: true, isActive: false, updatedBy: adminId } });
     res.status(200).json({ status_code: 200, status_message: "Archived successfully" });
   } catch (error) {
     res.status(500).json({ status_code: 500, status_message: "Internal Server Error" });

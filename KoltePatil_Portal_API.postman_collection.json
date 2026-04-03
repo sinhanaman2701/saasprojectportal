@@ -1,0 +1,425 @@
+{
+  "info": {
+    "name": "Kolte Patil Portal API",
+    "description": "Backend API for Kolte Patil Admin Portal & Mobile App. Auth: POST /admin/auth/login → use token as Bearer <JWT_TOKEN>.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3001"
+    },
+    {
+      "key": "JWT_TOKEN",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.response_data && jsonData.response_data.token) {",
+                  "    pm.collectionVariables.set('JWT_TOKEN', jsonData.response_data.token);",
+                  "}",
+                  "pm.test('Has token', function() {",
+                  "    pm.expect(jsonData.response_data.token).to.be.ok;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@koltepatil.test\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/auth/login",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3001",
+              "path": ["admin", "auth", "login"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin - Projects",
+      "item": [
+        {
+          "name": "GET All Projects",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{JWT_TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/projects?includeArchived=false",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3001",
+              "path": ["admin", "projects"],
+              "query": [
+                {
+                  "key": "includeArchived",
+                  "value": "false",
+                  "description": "true | false — whether to include archived projects"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST Create Project (Multipart)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{JWT_TOKEN}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "projectName",
+                  "value": "Kolte Patil Life Bay",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "Premium waterfront apartments in Hinjewadi with world-class amenities.",
+                  "type": "text"
+                },
+                {
+                  "key": "location",
+                  "value": "Hinjewadi, Pune",
+                  "type": "text"
+                },
+                {
+                  "key": "price",
+                  "value": "₹ 88 Lacs",
+                  "type": "text"
+                },
+                {
+                  "key": "bedrooms",
+                  "value": "3",
+                  "type": "text"
+                },
+                {
+                  "key": "bathrooms",
+                  "value": "2",
+                  "type": "text"
+                },
+                {
+                  "key": "area",
+                  "value": "1500 Sqft",
+                  "type": "text"
+                },
+                {
+                  "key": "furnishing",
+                  "value": "Furnished",
+                  "type": "text"
+                },
+                {
+                  "key": "locationIframe",
+                  "value": "https://www.google.com/maps/embed?pb=...",
+                  "type": "text"
+                },
+                {
+                  "key": "projectStatus",
+                  "value": "ONGOING",
+                  "type": "text"
+                },
+                {
+                  "key": "bannerImages",
+                  "value": "[{\"id\":\"b1\",\"url\":\"blob:http://localhost:3000/img1.jpg\",\"order\":0,\"isCover\":true},{\"id\":\"b2\",\"url\":\"blob:http://localhost:3000/img2.jpg\",\"order\":1,\"isCover\":false}]",
+                  "type": "text",
+                  "description": "JSON array — URL is replaced server-side if bannerImage_N file is also sent"
+                },
+                {
+                  "key": "bannerImage_0",
+                  "src": "",
+                  "type": "file",
+                  "description": "Upload file for banner slot 0 — fieldname must match index in bannerImages JSON"
+                },
+                {
+                  "key": "bannerImage_1",
+                  "src": "",
+                  "type": "file",
+                  "description": "Upload file for banner slot 1"
+                },
+                {
+                  "key": "brochure",
+                  "src": "",
+                  "type": "file",
+                  "description": "PDF brochure file"
+                },
+                {
+                  "key": "communityAmenities",
+                  "value": "[{\"name\":\"Swimming Pool\"},{\"name\":\"Club House\"}]",
+                  "type": "text",
+                  "description": "JSON array of {name} — send communityImage_N files to upload images"
+                },
+                {
+                  "key": "communityImage_0",
+                  "src": "",
+                  "type": "file"
+                },
+                {
+                  "key": "communityImage_1",
+                  "src": "",
+                  "type": "file"
+                },
+                {
+                  "key": "propertyAmenities",
+                  "value": "[\"Lift\",\"24/7 Security\",\"CCTV Cameras\",\"Reserved Parking\",\"Power Backup\"]",
+                  "type": "text",
+                  "description": "JSON string array of amenity names"
+                },
+                {
+                  "key": "nearbyPlaces",
+                  "value": "[{\"category\":\"Hospital\",\"distance\":\"3\",\"unit\":\"km\"},{\"category\":\"School\",\"distance\":\"2\",\"unit\":\"km\"}]",
+                  "type": "text",
+                  "description": "JSON array of {category, distance, unit} — distanceKm is computed server-side (m → km conversion)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/projects",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3001",
+              "path": ["admin", "projects"]
+            }
+          }
+        },
+        {
+          "name": "PUT Update Project (Multipart)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{JWT_TOKEN}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "projectName",
+                  "value": "Kolte Patil Life Bay (Updated)",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "Updated description.",
+                  "type": "text"
+                },
+                {
+                  "key": "location",
+                  "value": "Hinjewadi, Pune",
+                  "type": "text"
+                },
+                {
+                  "key": "price",
+                  "value": "₹ 92 Lacs",
+                  "type": "text"
+                },
+                {
+                  "key": "bedrooms",
+                  "value": "3",
+                  "type": "text"
+                },
+                {
+                  "key": "bathrooms",
+                  "value": "2",
+                  "type": "text"
+                },
+                {
+                  "key": "area",
+                  "value": "1550 Sqft",
+                  "type": "text"
+                },
+                {
+                  "key": "furnishing",
+                  "value": "Semi-Furnished",
+                  "type": "text"
+                },
+                {
+                  "key": "locationIframe",
+                  "value": "https://www.google.com/maps/embed?pb=...",
+                  "type": "text"
+                },
+                {
+                  "key": "bannerImages",
+                  "value": "[{\"id\":\"b1\",\"url\":\"http://localhost:3001/uploads/existing.jpg\",\"order\":0,\"isCover\":true}]",
+                  "type": "text",
+                  "description": "Existing images keep their URL; new images sent as bannerImage_N files replace the URL"
+                },
+                {
+                  "key": "bannerImage_0",
+                  "src": "",
+                  "type": "file",
+                  "description": "New image for slot 0 (optional — only if replacing)"
+                },
+                {
+                  "key": "brochure",
+                  "src": "",
+                  "type": "file",
+                  "description": "New PDF (optional)"
+                },
+                {
+                  "key": "communityAmenities",
+                  "value": "[{\"name\":\"Gym\"}]",
+                  "type": "text"
+                },
+                {
+                  "key": "communityImage_0",
+                  "src": "",
+                  "type": "file"
+                },
+                {
+                  "key": "propertyAmenities",
+                  "value": "[\"Lift\",\"Gym\"]",
+                  "type": "text"
+                },
+                {
+                  "key": "nearbyPlaces",
+                  "value": "[{\"category\":\"Hospital\",\"distance\":\"5\",\"unit\":\"km\"}]",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/projects/:id",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3001",
+              "path": ["admin", "projects", ":id"]
+            }
+          }
+        },
+        {
+          "name": "PATCH Toggle Active / Archive",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{JWT_TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isArchived\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/projects/:id",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3001",
+              "path": ["admin", "projects", ":id"]
+            }
+          }
+        },
+        {
+          "name": "DELETE Archive Project (soft-delete)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{JWT_TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/projects/:id",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3001",
+              "path": ["admin", "projects", ":id"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Mobile - Public Endpoints",
+      "item": [
+        {
+          "name": "POST Fetch Project Listings",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "access-token",
+                "value": "AmzbLArMYQ4Dtg5YgcJcbZlPMgECLaadHWVzl1va5v2rT3AT4UGuOjFvhiEhWoiD",
+                "description": "Legacy session token (prototype bypass)"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"page\": \"1\",\n  \"limit\": \"10\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/projects/list",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3001",
+              "path": ["projects", "list"]
+            }
+          }
+        },
+        {
+          "name": "POST Track Click (Analytics)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/projects/:id/click",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "3001",
+              "path": ["projects", ":id", "click"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

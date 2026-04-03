@@ -22,7 +22,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ status_code: 401, status_message: "Unauthorized: Invalid or expired access token" });
     }
 
-    const token = jwt.sign({ id: admin.id, email: admin.email }, JWT_SECRET, { expiresIn: '24h' });
+    const token = jwt.sign({ id: admin.id, email: admin.email }, JWT_SECRET);
 
     res.status(200).json({
       status_code: 200,

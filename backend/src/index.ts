@@ -13,8 +13,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Health Check / Root Route
+app.get('/', (req, res) => {
+  res.json({
+    status: 'online',
+    message: 'Kolte Patil Backend API Server is running successfully!'
+  });
+});
+
 // Static S3 Simulation
-app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Routes
 app.use('/admin/auth', authRoutes);
