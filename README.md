@@ -83,7 +83,11 @@ Frontend runs on **http://localhost:3000**
 
 ## Default Credentials
 
-**First-time setup:** Register a superadmin at http://localhost:3000/admin/login
+**Superadmin (Development):**
+- **Email:** `admin@example.com`
+- **Password:** *(check your environment or register new superadmin)*
+
+**First-time setup:** If no superadmin exists, register at http://localhost:3000/admin/login
 
 **Tenant Admin (after creating a portal):**
 - Email: The email you specified during portal creation
