@@ -1,6 +1,6 @@
-# Kolte-Patil Project Portal
+# Multi-Tenant Project Portal
 
-A decoupled full-stack CMS for managing real estate listings — **Next.js** admin frontend + **Node.js/Express** backend + **PostgreSQL** database.
+A production-ready multi-tenant SaaS platform for managing real estate listings. Built with Next.js 16, Node.js/Express, and PostgreSQL.
 
 ---
 
@@ -8,159 +8,205 @@ A decoupled full-stack CMS for managing real estate listings — **Next.js** adm
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | Next.js 16, React 19, TailwindCSS v4 |
-| Backend | Node.js, Express, TypeScript, Multer |
-| Database | PostgreSQL + Prisma ORM |
+| Frontend | Next.js 16, React 19, TailwindCSS v4, @dnd-kit |
+| Backend | Node.js, Express, TypeScript, Prisma ORM |
+| Database | PostgreSQL |
 | Auth | JWT (stateless) |
-| Drag & Drop | @dnd-kit/core, @dnd-kit/sortable |
+| File Storage | Local (dev) / S3 (prod) |
 
 ---
 
-## Getting Started
+## Quick Start
+
+### Prerequisites
+
+- Node.js 18+
+- PostgreSQL 15+
+- npm or yarn
 
 ### 1. Database Setup
 
-Create a PostgreSQL database named `kolte_patil_portal` on port `5432`.
+```bash
+# Create database
+createdb saasportal
+```
 
-### 2. Backend
+### 2. Backend Setup
 
 ```bash
 cd backend
+
+# Install dependencies
 npm install
-```
 
-Create `.env` in `/backend`:
-```env
-DATABASE_URL="postgresql://postgres:YOUR_PASSWORD@localhost:5432/kolte_patil_portal?schema=public"
-JWT_SECRET="your_secret_key"
-PORT=3001
-```
+# Create .env file
+cat > .env <<EOF
+DATABASE_URL="postgresql://postgres@localhost:5432/saasportal?schema=public"
+JWT_SECRET="your-secret-key-change-in-production"
+JWT_EXPIRY="7d"
+PORT=3002
+POSTMAN_BASE_URL="http://localhost:3002"
+STORAGE_TYPE=local
+ALLOWED_ORIGINS="http://localhost:3000,http://localhost:3001"
+EOF
 
-```bash
+# Generate Prisma client and run migrations
 npx prisma generate
-npx prisma db push
-npx ts-node src/index.ts
-```
+npx prisma migrate deploy
 
-Server runs on **http://localhost:3001**
-
-### 3. Frontend (Admin Portal)
-
-```bash
-cd admin-portal
-npm install
+# Start development server
 npm run dev
 ```
 
-App runs on **http://localhost:3000**
+Backend runs on **http://localhost:3002**
 
-### Default Credentials
+### 3. Frontend Setup
 
-**Superadmin:**
-- **Email:** `superadmin@saasportal.com`
-- **Password:** `SuperAdmin@2026`
+```bash
+cd admin-portal
 
-**Tenant Admin (Kolte Patil):**
-- **Email:** `test@gmail.com`
-- **Password:** `password123`
+# Install dependencies
+npm install
 
----
+# Create .env.local file
+cat > .env.local <<EOF
+NEXT_PUBLIC_API_URL="http://localhost:3002"
+EOF
 
-## Features
+# Start development server
+npm run dev
+```
 
-### Dashboard Tabs
-The dashboard supports four filter tabs:
-- **All** — all live (non-draft) projects
-- **Active** — live, non-archived projects
-- **Drafts** — work-in-progress listings not yet published
-- **Archived** — soft-deleted / hidden projects
-
-### Drafts Workflow
-Admins can save a project as a **Draft** during creation:
-1. Fill out the multi-step form (Step 1 → 3)
-2. On Step 3, choose **"Save as Draft"** (grey) or **"Publish Listing"** (gold)
-3. Drafts appear exclusively in the **Drafts** tab — never in All, Active, or mobile API
-4. Open any draft → click **"Make Live"** in the sidebar to publish it instantly
-
-### Project Creation Form
-Multi-step form with three steps:
-1. **Property Info** — banner images (drag to reorder via dnd-kit), project name, location, price
-2. **Details** — bedrooms, area, furnishing, status, description, community amenities, property amenities (checkbox + reorder)
-3. **Location & Attachments** — nearby places (checkbox to include/exclude + drag to reorder), map embed, brochure PDF upload
-
-### Project Status
-Three values: `ONGOING`, `LATEST`, `COMPLETED`. Set via the form and displayed as badges on listing cards and in the detail page header.
+Frontend runs on **http://localhost:3000**
 
 ---
 
-## Image & File Upload Flow
+## Default Credentials
 
-1. Admin uploads images via the multi-step form
-2. Files are saved to `backend/uploads/` (local storage)
-3. S3 integration planned: swap Multer's local disk storage for AWS S3 — no API/frontend changes needed
+**First-time setup:** Register a superadmin at http://localhost:3000/admin/login
+
+**Tenant Admin (after creating a portal):**
+- Email: The email you specified during portal creation
+- Password: The password you specified during portal creation
+
+---
+
+## Architecture
+
+### Multi-Tenant Design
+
+- Single deployment serves unlimited tenants
+- Each tenant has isolated data via `tenantId` scoping
+- Dynamic form schemas via `TenantField` table
+- Self-service portal creation via 5-step wizard
+
+### Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **Dynamic Forms** | Form fields configured per-tenant via database schema |
+| **Image Captions** | Optional captions per image field |
+| **Image Cropping** | Fixed dimension cropping for IMAGE/IMAGE_MULTI fields |
+| **Rate Limiting** | 100 req/min general, 10 req/15min auth endpoints |
+| **CORS** | Configurable via `ALLOWED_ORIGINS` env var |
+| **File Validation** | MIME type + size limits (20MB max) |
+| **Storage Abstraction** | Local filesystem (dev) or S3 (production) |
 
 ---
 
 ## API Overview
 
-### Admin API (`/admin/*`) — requires `Authorization: Bearer <JWT_TOKEN>`
+### Superadmin API (`/superadmin/*`, `/admin/portals/*`)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/admin/auth/login` | Login, returns JWT |
-| GET | `/admin/projects` | List all projects (`?includeArchived=true`) |
-| GET | `/admin/projects/:id` | Get single project |
-| POST | `/admin/projects` | Create project (multipart/form-data) |
-| PUT | `/admin/projects/:id` | Update project (multipart/form-data) |
-| PATCH | `/admin/projects/:id` | Toggle `isArchived`, `isActive`, or `isDraft` |
-| DELETE | `/admin/projects/:id` | Archive project (soft-delete) |
+| POST | `/superadmin/auth/register` | Register first superadmin |
+| POST | `/superadmin/auth/login` | Superadmin login |
+| GET | `/admin/portals` | List all tenants |
+| POST | `/admin/portals` | Create new tenant |
+| GET | `/admin/portals/:slug/fields` | Get tenant field schema |
+| POST | `/admin/portals/:slug/fields` | Add field to tenant |
 
-### Mobile API (`/projects/*`) — public
+### Tenant API (`/api/:slug/*`)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/projects/list` | Paginated active listings (drafts & archived excluded) |
-| POST | `/projects/:id/click` | Track analytics click |
+| POST | `/api/:slug/auth/login` | Tenant admin login |
+| GET | `/api/:slug/projects` | List projects (paginated) |
+| POST | `/api/:slug/projects` | Create project |
+| PUT | `/api/:slug/projects/:id` | Update project |
+| DELETE | `/api/:slug/projects/:id` | Archive project |
 
-> **Note:** The mobile API enforces `isActive: true`, `isArchived: false`, `isDraft: false` — drafts can never leak to mobile consumers.
+### Public API
 
----
-
-## Data Model
-
-### Project Fields
-- `projectName`, `description`, `location`, `locationIframe`
-- `bedrooms`, `bathrooms`, `price`, `furnishing`, `area`
-- `bannerImages` — JSON array: `[{url, order, isCover}]`
-- `coverImageUrl` — computed field (first `isCover: true` image, or first image)
-- `projectStatus` — `ONGOING | LATEST | COMPLETED`
-- `project_brochure` — PDF URL
-- `isActive` — `true` for live listings
-- `isArchived` — `true` for soft-deleted listings
-- `isDraft` — `true` for work-in-progress listings (mutually exclusive with active)
-- `communityAmenities[]`, `propertyAmenities[]`, `nearbyPlaces[]`
-
-### Relational Tables
-- `CommunityAmenity` — `id, projectId, name, imageUrl`
-- `PropertyAmenity` — `id, projectId, name`
-- `NearbyPlace` — `id, projectId, category, distanceKm`
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | Health check |
+| GET | `/api/:slug/postman.json` | Auto-generated Postman collection |
 
 ---
 
-## Frontend Architecture
+## Project Structure
 
-### Universal Header (`src/components/Header.tsx`)
-A single shared header component used across all pages. Contains:
-- Kolte Patil logo (click to go to dashboard)
-- Logout button
+```
+├── admin-portal/          # Next.js frontend
+│   ├── src/
+│   │   ├── app/           # App router pages
+│   │   ├── components/    # Reusable components
+│   │   └── lib/           # Utilities
+│   └── .env.local
+├── backend/               # Express backend
+│   ├── src/
+│   │   ├── routes/        # API routes
+│   │   ├── middleware/    # Auth, validation, upload
+│   │   ├── storage/       # Storage abstraction (local/S3)
+│   │   └── lib/           # Prisma client
+│   ├── prisma/
+│   │   ├── schema.prisma
+│   │   └── migrations/
+│   └── .env
+└── README.md
+```
 
-Each page renders page-specific controls (e.g., "Publish Listing" button, stepper, "Cancel") in a sub-bar below the universal header.
+---
 
-### Pages
-| Route | Description |
-|-------|-------------|
-| `/` | Login page |
-| `/dashboard` | Project catalog with All / Active / Drafts / Archived tabs |
-| `/dashboard/[projectname]` | Project detail view with admin actions |
-| `/projects/new` | Multi-step create form |
-| `/projects/edit/[id]` | Edit existing project |
+## Production Deployment
+
+See `Dev-Handoff.md` in the documentation folder for production deployment requirements.
+
+### Key Environment Variables (Production)
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `JWT_SECRET` | 32+ character random string |
+| `ALLOWED_ORIGINS` | Comma-separated list of allowed domains |
+| `STORAGE_TYPE` | `local` or `s3` |
+| `REDIS_URL` | Redis connection string (optional) |
+
+---
+
+## Development Commands
+
+### Backend
+
+```bash
+npm run dev      # Start dev server with nodemon
+npm run build    # Compile TypeScript
+npm run start    # Start production server
+```
+
+### Frontend
+
+```bash
+npm run dev      # Start Next.js dev server
+npm run build    # Build for production
+npm run start    # Start Next.js production server
+npm run lint     # Run ESLint
+```
+
+---
+
+## License
+
+MIT
