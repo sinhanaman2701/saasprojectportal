@@ -13,28 +13,149 @@ enum ProjectStatus {
   COMPLETED
 }
 
-model Admin {
-  id            Int      @id @default(autoincrement())
-  email         String   @unique
-  password_hash String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+enum TenantStatus {
+  PENDING
+  LIVE
+  SUSPENDED
 }
+
+enum FieldType {
+  TEXT
+  NUMBER
+  SELECT
+  MULTISELECT
+  IMAGE
+  IMAGE_MULTI
+  FILE
+  CHECKBOX
+  LOCATION
+  PRICE
+  AREA
+  DATERANGE
+}
+
+// ─── Platform Models ────────────────────────────────────────────────────────
+
+model Superadmin {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Tenant {
+  id           Int         @id @default(autoincrement())
+  slug         String      @unique
+  name         String
+  logoUrl      String?
+  accessToken  String?     @unique  // Static token for mobile API access
+  status       TenantStatus @default(PENDING)
+
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  fields       TenantField[]
+  projects     TenantProject[]
+  admins       TenantAdmin[]
+}
+
+model TenantField {
+  id          Int      @id @default(autoincrement())
+  tenantId    Int
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  key         String   // projectName, bedrooms, price_range
+  label       String   // "Project Name", "Bedrooms"
+  type        FieldType
+  section     String   // "Property Info", "Details", "Location"
+  order       Int      @default(0)
+  required    Boolean  @default(false)
+  placeholder String?
+  options     Json?    // for select/multiselect: [{label, value}]
+  validation  Json?    // [{rule: "min", value: 0}]
+  showInList  Boolean  @default(true)
+  maxLength    Int?     // Character limit for TEXT fields
+  imageWidth   Int?     // Target width in pixels (IMAGE/IMAGE_MULTI only)
+  imageHeight  Int?     // Target height in pixels (IMAGE/IMAGE_MULTI only)
+  allowCaption Boolean  @default(false)  // Enable caption input for IMAGE/IMAGE_MULTI
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+}
+
+model TenantAdmin {
+  id           Int      @id @default(autoincrement())
+  tenantId     Int
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email        String
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations to TenantProject
+  createdProjects TenantProject[] @relation("TenantProjectCreatedBy")
+  updatedProjects TenantProject[] @relation("TenantProjectUpdatedBy")
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+}
+
+// ─── New Multi-Tenant Project Model ───────────────────────────────────────
+// Used by all new tenants. Stores config-driven fields in the `data` JSONB
+// column. The old flat-column Project (below) is preserved for backward
+// compat with existing Kolte & Patil data during migration.
+
+model TenantProject {
+  id            Int            @id @default(autoincrement())
+  tenantId      Int
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // System fields (always present)
+  status        ProjectStatus  @default(ONGOING)
+  isActive      Boolean        @default(true)
+  isArchived    Boolean        @default(false)
+  isDraft       Boolean        @default(false)
+
+  // Config-driven tenant fields: {fieldKey: value}
+  data          Json           @default("{}")
+  // Structured file attachments: {fieldKey: [{url, order, isCover}]}
+  attachments   Json?          @default("{}")
+
+  createdBy     Int?
+  updatedBy     Int?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  // FK relations to TenantAdmin
+  createdByAdmin TenantAdmin?  @relation("TenantProjectCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+  updatedByAdmin TenantAdmin?  @relation("TenantProjectUpdatedBy", fields: [updatedBy], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([tenantId, isArchived])
+  @@index([tenantId, isDraft])
+}
+
+// ─── Existing Models (Backward Compat) ───────────────────────────────────
+// Project, CommunityAmenity, PropertyAmenity, NearbyPlace are preserved
+// exactly as-is for existing Kolte & Patil data during migration Phase 1.
+// These will be deprecated and replaced by TenantProject in Phase 2.
 
 model Project {
   id               Int      @id @default(autoincrement())
   projectName      String
   description      String
   location         String
-  
+
   bedrooms         Int
   bathrooms        Int?
   price            String?
   furnishing       String
   area             String
-  
+
   project_brochure String?
-  bannerImages     String?  // JSON: [{url, order, isCover}]
+  bannerImages     String?
   locationIframe   String?
   projectStatus    ProjectStatus @default(ONGOING)
 
@@ -56,6 +177,14 @@ model Project {
   @@index([isArchived])
   @@index([location])
   @@index([createdAt])
+}
+
+model Admin {
+  id            Int      @id @default(autoincrement())
+  email         String   @unique
+  password_hash String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model CommunityAmenity {

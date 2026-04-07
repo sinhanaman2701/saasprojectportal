@@ -55,7 +55,13 @@ npm run dev
 App runs on **http://localhost:3000**
 
 ### Default Credentials
-- **Email:** `admin@koltepatil.test`
+
+**Superadmin:**
+- **Email:** `superadmin@saasportal.com`
+- **Password:** `SuperAdmin@2026`
+
+**Tenant Admin (Kolte Patil):**
+- **Email:** `test@gmail.com`
 - **Password:** `password123`
 
 ---

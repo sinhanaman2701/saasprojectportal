@@ -511,14 +511,14 @@ export default function EditProjectPage({ params }: EditProjectProps) {
         {/* ── Navigation Buttons ── */}
         <div className="mt-8 flex gap-3">
           {step > 1 && (
-            <button type="button" onClick={() => { setStep((prev => prev - 1) as Step); window.scrollTo(0, 0); }}
+            <button type="button" onClick={() => { setStep((step - 1) as unknown as Step); window.scrollTo(0, 0); }}
               className="px-6 h-11 flex items-center justify-center gap-2 rounded-lg border border-[#E7E5E4] bg-white hover:bg-[#F5F3EF] text-[#78716C] text-sm font-medium transition-all">
               <ChevronLeft size={15} /> Go back
             </button>
           )}
           <button
             type="button"
-            onClick={step < 3 ? () => { setStep((prev => prev + 1) as Step); window.scrollTo(0, 0); } : handleSubmit}
+            onClick={step < 3 ? () => { setStep((step + 1) as Step); window.scrollTo(0, 0); } : handleSubmit}
             disabled={loading}
             className="flex-1 h-11 flex items-center justify-center gap-2 rounded-lg bg-[#C9A84C] hover:bg-[#8B6914] disabled:opacity-60 text-white text-sm font-semibold transition-all shadow-sm hover:shadow-md"
           >
