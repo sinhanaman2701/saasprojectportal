@@ -6,6 +6,7 @@ import { tenantApiAuth } from '../middleware/tenantApiAuth';
 import { createTenantUpload, processUploadedFiles } from '../middleware/upload';
 import { validateProjectData } from '../middleware/tenantProjectValidation';
 import { generatePostmanCollection } from '../utils/postman-generator';
+import { getIconUrl } from '../utils/icon-map';
 import prisma from '../lib/prisma';
 
 const router = Router();
@@ -100,6 +101,41 @@ function shapeProjectResponse(
   };
 }
 
+/**
+ * Enriches propertyAmenities (array of value strings) and nearbyPlaces
+ * (array of {category, distance, unit} objects) inside a data blob with
+ * resolved labels and iconUrls, using the tenant field options from DB.
+ */
+function enrichIcons(
+  data: Record<string, unknown>,
+  fields: TenantField[],
+  serverBaseUrl: string
+): Record<string, unknown> {
+  const enriched = { ...data };
+
+  // ── Property Amenities ──────────────────────────────────────────────────
+  const amenitiesField = fields.find((f) => f.key === 'propertyAmenities');
+  if (amenitiesField && Array.isArray(enriched.propertyAmenities)) {
+    const optionsList = (amenitiesField.options as Array<{ label: string; value: string }> | null) || [];
+    const optionMap = new Map(optionsList.map((o) => [o.value, o.label]));
+    enriched.propertyAmenities = (enriched.propertyAmenities as string[]).map((val) => ({
+      value: val,
+      label: optionMap.get(val) ?? val,
+      iconUrl: getIconUrl(serverBaseUrl, val),
+    }));
+  }
+
+  // ── Nearby Places ───────────────────────────────────────────────────────
+  if (Array.isArray(enriched.nearbyPlaces)) {
+    enriched.nearbyPlaces = (enriched.nearbyPlaces as Array<Record<string, unknown>>).map((place) => ({
+      ...place,
+      iconUrl: getIconUrl(serverBaseUrl, place.category as string),
+    }));
+  }
+
+  return enriched;
+}
+
 // ─── Public endpoints (Access-Token auth) ────────────────────────────────────
 
 // GET /api/:slug/projects/stats — get aggregated stats
@@ -180,12 +216,29 @@ router.get('/:slug/projects', tenantApiAuth, async (req, res) => {
     ]);
 
     const fields = await getTenantFields(tenantId);
-    const enriched = projects.map((p) => ({
-      ...shapeProjectResponse(p, fields as any),
-      total,
-      page: pageNum,
-      pages: Math.ceil(total / limitNum),
-    }));
+    const serverBaseUrl = `${req.protocol}://${req.get('host')}`;
+    const enriched = projects.map((p) => {
+      const shaped = shapeProjectResponse(p, fields as any);
+      // Pull the full raw data to recover showInList:false fields (e.g. nearbyPlaces)
+      const fullData = typeof p.data === 'string' ? JSON.parse(p.data) : (p.data as Record<string, unknown> || {});
+      // Always include propertyAmenities + nearbyPlaces in mobile payload
+      const dataWithIcons = enrichIcons(
+        {
+          ...shaped.data,
+          ...(fullData.propertyAmenities !== undefined && { propertyAmenities: fullData.propertyAmenities }),
+          ...(fullData.nearbyPlaces !== undefined && { nearbyPlaces: fullData.nearbyPlaces }),
+        },
+        fields as any,
+        serverBaseUrl
+      );
+      return {
+        ...shaped,
+        data: dataWithIcons,
+        total,
+        page: pageNum,
+        pages: Math.ceil(total / limitNum),
+      };
+    });
 
     res.json({ status_code: 200, status_message: 'Success', response_data: enriched as ProjectShape[] });
   } catch (error) {
@@ -231,6 +284,9 @@ router.get('/:slug/projects/:id', tenantApiAuth, async (req, res) => {
       }
     }
 
+    const serverBaseUrl = `${req.protocol}://${req.get('host')}`;
+    const enrichedData = enrichIcons(data, fields as any, serverBaseUrl);
+
     res.json({
       status_code: 200,
       status_message: 'Success',
@@ -243,7 +299,7 @@ router.get('/:slug/projects/:id', tenantApiAuth, async (req, res) => {
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,
         coverImageUrl,
-        data,
+        data: enrichedData,
         attachments,
       },
     });
@@ -464,10 +520,18 @@ router.put('/:slug/projects/:id', tenantAuth, async (req, res) => {
         });
       }
 
-      // Handle draft/publish transition: when isDraft changes, isActive should flip
+      // ── State machine: a project can only be in ONE of three states ──────────
+      // active  → isActive:true,  isDraft:false, isArchived:false
+      // draft   → isActive:false, isDraft:true,  isArchived:false
+      // archived→ isActive:false, isDraft:false,  isArchived:true
+      //
+      // A PUT that sets isDraft must therefore always unarchive the project.
       const newIsDraft = rawIsDraft !== undefined ? (rawIsDraft === 'true' || rawIsDraft === true) : existing.isDraft;
       const draftChanged = newIsDraft !== existing.isDraft;
+      // When draft status changes: active = !isDraft. When publishing, also unarchive.
       const newIsActive = draftChanged ? !newIsDraft : (rawIsActive !== undefined ? (rawIsActive === 'true' || rawIsActive === true) : existing.isActive);
+      // Unarchive whenever the project transitions to draft or active via PUT
+      const shouldUnarchive = draftChanged || (!newIsDraft && newIsActive && existing.isArchived);
 
       const updateData: Record<string, unknown> = {
         data: dataObj,
@@ -477,6 +541,8 @@ router.put('/:slug/projects/:id', tenantAuth, async (req, res) => {
         ...(rawIsActive !== undefined && { isActive: rawIsActive === 'true' || rawIsActive === true }),
         // Auto-set isActive when draft status changes
         ...(draftChanged && { isActive: newIsActive }),
+        // Clear isArchived whenever moving to draft or active state
+        ...(shouldUnarchive && { isArchived: false }),
       };
 
       const updated = await prisma.tenantProject.update({

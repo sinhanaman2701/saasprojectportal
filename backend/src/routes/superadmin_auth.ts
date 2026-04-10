@@ -44,9 +44,23 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// POST /admin/auth/register — seed first superadmin
+// POST /superadmin/auth/register — first-run bootstrap only
+// This endpoint is permanently locked after the first superadmin is created.
+// Once any superadmin exists in the database, this returns 403 to everyone —
+// regardless of any token, header, or body value sent.
 router.post('/register', async (req, res) => {
   try {
+    // ── First-run gate ────────────────────────────────────────────────────────
+    // Count existing superadmins. If any exist, the platform is already
+    // bootstrapped and this endpoint must never create another account.
+    const existingCount = await prisma.superadmin.count();
+    if (existingCount > 0) {
+      return res.status(403).json({
+        status_code: 403,
+        status_message: 'Platform already initialized. Use POST /superadmin/auth/login instead.',
+      });
+    }
+
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -55,11 +69,6 @@ router.post('/register', async (req, res) => {
 
     if (password.length < 8) {
       return res.status(400).json({ status_code: 400, status_message: 'Password must be at least 8 characters' });
-    }
-
-    const existing = await prisma.superadmin.findUnique({ where: { email } });
-    if (existing) {
-      return res.status(409).json({ status_code: 409, status_message: 'Superadmin already exists' });
     }
 
     const passwordHash = await bcrypt.hash(password, 12);

@@ -80,6 +80,10 @@ if (process.env.STORAGE_TYPE !== 's3') {
   console.log('[INFO] S3 storage mode - local file serving disabled');
 }
 
+// Icon assets — always served statically (bundled with the codebase, not user uploads)
+app.use('/icons', express.static(path.join(__dirname, '../src/icons')));
+console.log('[INFO] Icon assets served at /icons');
+
 // ─── Existing Routes (Backward Compat) ────────────────────────────────────
 app.use('/admin/auth', authRoutes);              // Tenant admin login (existing Kolte & Patil)
 app.use('/admin/projects', adminProjectRoutes);  // Admin project CRUD

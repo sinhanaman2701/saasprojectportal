@@ -932,7 +932,7 @@ export default function NewPortalPage() {
                   ← Back
                 </button>
                 <button
-                  onClick={handleNext}
+                  onClick={handleNextWithValidation}
                   className="h-11 px-6 bg-[#C9A84C] hover:bg-[#8B6914] text-white font-medium rounded-lg transition-colors text-sm"
                 >
                   Next: Admin

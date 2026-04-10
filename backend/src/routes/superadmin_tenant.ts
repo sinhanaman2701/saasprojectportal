@@ -98,7 +98,18 @@ router.post('/admins', async (req, res) => {
 // DELETE /admin/portals/:slug/admins/:id — delete tenant admin
 router.delete('/admins/:id', async (req, res) => {
   try {
-    await prisma.tenantAdmin.delete({ where: { id: parseInt(req.params.id) } });
+    const adminId = parseInt(req.params.id);
+    // deleteMany is used because delete requires a unique where clause.
+    // The tenantId scope ensures a superadmin cannot delete admins
+    // belonging to a different tenant even if they know the integer ID.
+    const result = await prisma.tenantAdmin.deleteMany({
+      where: { id: adminId, tenantId: req.tenant!.id },
+    });
+
+    if (result.count === 0) {
+      return res.status(404).json({ status_code: 404, status_message: 'Admin not found for this tenant' });
+    }
+
     res.json({ status_code: 200, status_message: 'Tenant admin deleted' });
   } catch (error) {
     res.status(500).json({ status_code: 500, status_message: 'Internal server error' });

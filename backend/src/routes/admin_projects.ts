@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import adminAuthMiddleware from '../middleware/auth';
 import prisma from '../lib/prisma';
+import { getIconUrl } from '../utils/icon-map';
 
 const router = Router();
 
@@ -67,6 +68,7 @@ router.post('/', upload.any(), async (req: any, res) => {
     const adminId = req.user.id;
     const files = req.files as Express.Multer.File[] || [];
     const baseUrl = `${req.protocol}://${req.get('host')}/uploads/`;
+    const serverBaseUrl = `${req.protocol}://${req.get('host')}`;
 
     // 1. Banner Images — parse the order/cover JSON
     const bannerImagesRaw = req.body.bannerImages ? JSON.parse(req.body.bannerImages) : [];
@@ -91,23 +93,23 @@ router.post('/', upload.any(), async (req: any, res) => {
     });
 
     // 4. Property Amenities (ordered string array)
-    const propertyAmenitiesData: { name: string }[] = [];
+    const propertyAmenitiesData: { name: string; iconUrl: string | null }[] = [];
     if (req.body.propertyAmenities) {
       const selected: string[] = JSON.parse(req.body.propertyAmenities);
       selected.forEach((name: string) => {
-        if (name.trim()) propertyAmenitiesData.push({ name: name.trim() });
+        if (name.trim()) propertyAmenitiesData.push({ name: name.trim(), iconUrl: getIconUrl(serverBaseUrl, name.trim()) });
       });
     }
 
     // 5. Nearby Places (with km/m unit)
-    const nearbyPlacesData: { category: string; distanceKm: number }[] = [];
+    const nearbyPlacesData: { category: string; distanceKm: number; iconUrl: string | null }[] = [];
     if (req.body.nearbyPlaces) {
       const places: { category: string; distance: string; unit: string }[] = JSON.parse(req.body.nearbyPlaces);
       places.forEach((pl) => {
         if (pl.category && pl.distance) {
           const dist = parseFloat(pl.distance);
           const distanceKm = pl.unit === 'm' ? dist / 1000 : dist;
-          nearbyPlacesData.push({ category: pl.category, distanceKm });
+          nearbyPlacesData.push({ category: pl.category, distanceKm, iconUrl: getIconUrl(serverBaseUrl, pl.category) });
         }
       });
     }
@@ -155,6 +157,7 @@ router.put('/:id', upload.any(), async (req: any, res) => {
     const adminId = req.user.id;
     const files = req.files as Express.Multer.File[] || [];
     const baseUrl = `${req.protocol}://${req.get('host')}/uploads/`;
+    const serverBaseUrl = `${req.protocol}://${req.get('host')}`;
 
     const existingProject = await prisma.project.findUnique({
       where: { id: parseInt(id) },
@@ -189,23 +192,23 @@ router.put('/:id', upload.any(), async (req: any, res) => {
     });
 
     // 4. Property Amenities
-    const propertyAmenitiesData: { name: string }[] = [];
+    const propertyAmenitiesData: { name: string; iconUrl: string | null }[] = [];
     if (req.body.propertyAmenities) {
       const selected: string[] = JSON.parse(req.body.propertyAmenities);
       selected.forEach((name: string) => {
-        if (name.trim()) propertyAmenitiesData.push({ name: name.trim() });
+        if (name.trim()) propertyAmenitiesData.push({ name: name.trim(), iconUrl: getIconUrl(serverBaseUrl, name.trim()) });
       });
     }
 
     // 5. Nearby Places
-    const nearbyPlacesData: { category: string; distanceKm: number }[] = [];
+    const nearbyPlacesData: { category: string; distanceKm: number; iconUrl: string | null }[] = [];
     if (req.body.nearbyPlaces) {
       const places: { category: string; distance: string; unit: string }[] = JSON.parse(req.body.nearbyPlaces);
       places.forEach((pl) => {
         if (pl.category && pl.distance) {
           const dist = parseFloat(pl.distance);
           const distanceKm = pl.unit === 'm' ? dist / 1000 : dist;
-          nearbyPlacesData.push({ category: pl.category, distanceKm });
+          nearbyPlacesData.push({ category: pl.category, distanceKm, iconUrl: getIconUrl(serverBaseUrl, pl.category) });
         }
       });
     }

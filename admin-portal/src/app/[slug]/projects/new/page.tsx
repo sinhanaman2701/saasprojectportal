@@ -93,7 +93,21 @@ export default function NewProjectPage() {
           const project = projectData.response_data;
           console.log('Loaded project data for editing:', project.data);
           console.log('Loaded attachments:', project.attachments);
-          setInitialData(project.data || {});
+
+          // Normalise enriched API fields back to their raw storable form:
+          // - propertyAmenities: [{value,label,iconUrl}] → ["cctv","parking"]
+          // - nearbyPlaces: strip iconUrl added by the backend enrichment
+          const rawData = { ...(project.data || {}) };
+          if (Array.isArray(rawData.propertyAmenities)) {
+            rawData.propertyAmenities = rawData.propertyAmenities.map((v: any) =>
+              typeof v === 'object' && v !== null ? v.value : v
+            );
+          }
+          if (Array.isArray(rawData.nearbyPlaces)) {
+            rawData.nearbyPlaces = rawData.nearbyPlaces.map(({ iconUrl: _stripped, ...rest }: any) => rest);
+          }
+
+          setInitialData(rawData);
           setInitialAttachments(project.attachments || {});
         } else {
           setTenantError("Failed to load project data: " + projectData.status_message);

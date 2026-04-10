@@ -443,19 +443,26 @@ function ReadOnlyField({
     case "SELECT":
       return <span className="text-[#1C1917]">{value}</span>;
 
-    case "MULTISELECT":
+    case "MULTISELECT": {
+      // Normalise: handle both legacy string[] and enriched {value, label, iconUrl}[]
+      const items = (Array.isArray(value) ? value : []).map((v: any) =>
+        typeof v === "object" && v !== null
+          ? { key: v.value ?? String(v), label: v.label ?? v.value ?? String(v) }
+          : { key: String(v), label: String(v) }
+      );
       return (
         <div className="flex flex-wrap gap-1.5">
-          {(Array.isArray(value) ? value : []).map((v: string) => (
+          {items.map(({ key, label }) => (
             <span
-              key={v}
+              key={key}
               className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#F5F3EF] text-[#78716C]"
             >
-              {v}
+              {label}
             </span>
           ))}
         </div>
       );
+    }
 
     case "CHECKBOX":
       return (

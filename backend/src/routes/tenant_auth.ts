@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import tenantMiddleware from '../middleware/tenant';
 import tenantAuth, { type TenantContext } from '../middleware/tenantAuth';
+import superadminAuth from '../middleware/superadminAuth';
 import prisma from '../lib/prisma';
 
 const router = Router();
@@ -59,8 +60,10 @@ router.post('/:slug/auth/login', tenantMiddleware, async (req, res) => {
   }
 });
 
-// POST /api/:slug/auth/register-admin — create tenant admin (called by superadmin or onboarding flow)
-router.post('/register-admin', tenantMiddleware, async (req, res) => {
+// POST /api/register-admin — create tenant admin (superadmin only)
+// Requires a valid superadmin JWT. Tenant admins should use
+// POST /admin/portals/:slug/admins which has the same guard.
+router.post('/register-admin', superadminAuth, tenantMiddleware, async (req, res) => {
   try {
     const { email, password, name } = req.body;
     const tenantId = req.tenant!.id;

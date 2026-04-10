@@ -121,25 +121,28 @@ export default function DynamicForm({ fields, initialData = {}, initialAttachmen
   };
 
   const handleSubmit = async (isDraft: boolean) => {
-    // Validate all sections on final submit
-    const allErrs: Record<string, string> = {};
-    for (const f of fields) {
-      const val = values[f.key];
-      if (f.required) {
-        if (f.type === "IMAGE_MULTI" || f.type === "IMAGE" || f.type === "FILE") {
-          const att = attachments[f.key];
-          if (!att || att.length === 0) allErrs[f.key] = `${f.label} is required`;
-        } else if (val === undefined || val === null || val === "") {
-          allErrs[f.key] = `${f.label} is required`;
+    // Drafts bypass required-field validation — the backend handles partial validation.
+    // Only enforce required fields for full published listings.
+    if (!isDraft) {
+      const allErrs: Record<string, string> = {};
+      for (const f of fields) {
+        const val = values[f.key];
+        if (f.required) {
+          if (f.type === "IMAGE_MULTI" || f.type === "IMAGE" || f.type === "FILE") {
+            const att = attachments[f.key];
+            if (!att || att.length === 0) allErrs[f.key] = `${f.label} is required`;
+          } else if (val === undefined || val === null || val === "") {
+            allErrs[f.key] = `${f.label} is required`;
+          }
         }
       }
-    }
-    if (Object.keys(allErrs).length > 0) {
-      setErrors(allErrs);
-      // Jump to first section with errors
-      const firstErrField = fields.find((f) => allErrs[f.key]);
-      if (firstErrField) setStep(sections.indexOf(firstErrField.section) + 1);
-      return;
+      if (Object.keys(allErrs).length > 0) {
+        setErrors(allErrs);
+        // Jump to first section with errors
+        const firstErrField = fields.find((f) => allErrs[f.key]);
+        if (firstErrField) setStep(sections.indexOf(firstErrField.section) + 1);
+        return;
+      }
     }
 
     setLoading(true);
