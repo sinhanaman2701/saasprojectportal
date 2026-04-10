@@ -289,45 +289,65 @@ export default function TenantManagePage({ params }: { params: Promise<{ slug?: 
     }
 
     if (editingField) {
-      // Update existing field - update local state immediately (like wizard)
+      // Build the full updated field (include ALL fields so local state stays in sync)
+      const updatedFieldData: TenantField = {
+        ...editingField,
+        key: finalKey,
+        label: fieldForm.label,
+        type: fieldForm.type,
+        section: fieldForm.section,
+        required: fieldForm.required,
+        placeholder: fieldForm.placeholder || null,
+        showInList: fieldForm.showInList,
+        maxLength: fieldForm.maxLength ? parseInt(fieldForm.maxLength, 10) : null,
+        imageWidth: fieldForm.imageWidth ? parseInt(fieldForm.imageWidth, 10) : null,
+        imageHeight: fieldForm.imageHeight ? parseInt(fieldForm.imageHeight, 10) : null,
+        allowCaption: fieldForm.allowCaption,
+        options: optionsPayload,
+      };
+
+      // Optimistically update local state so the modal shows correct values if reopened
       const updatedFields = (tenant?.fields || []).map((f) =>
-        f.id === editingField.id
-          ? {
-              ...f,
-              key: finalKey,
-              label: fieldForm.label,
-              type: fieldForm.type,
-              section: fieldForm.section,
-              required: fieldForm.required,
-              placeholder: fieldForm.placeholder || null,
-              showInList: fieldForm.showInList,
-              maxLength: fieldForm.maxLength ? parseInt(fieldForm.maxLength, 10) : null,
-              options: optionsPayload,
-            }
-          : f
+        f.id === editingField.id ? updatedFieldData : f
       );
       setTenant({ ...tenant!, fields: updatedFields });
+      setShowFieldModal(false);
 
-      // Persist to backend in background
-      const token = localStorage.getItem("superadminToken");
-      fetch(`http://localhost:3002/admin/portals/${tenantSlug}/fields/${editingField.id}`, {
-        method: "PUT",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          key: finalKey,
-          label: fieldForm.label,
-          type: fieldForm.type,
-          section: fieldForm.section,
-          required: fieldForm.required,
-          placeholder: fieldForm.placeholder || null,
-          showInList: fieldForm.showInList,
-          maxLength: fieldForm.maxLength ? parseInt(fieldForm.maxLength, 10) : null,
-          imageWidth: fieldForm.imageWidth ? parseInt(fieldForm.imageWidth, 10) : null,
-          imageHeight: fieldForm.imageHeight ? parseInt(fieldForm.imageHeight, 10) : null,
-          allowCaption: fieldForm.allowCaption,
-          options: optionsPayload,
-        }),
-      }).catch(console.error);
+      // Persist to backend — await so errors are visible to the user
+      try {
+        const token = localStorage.getItem("superadminToken");
+        const res = await fetch(`http://localhost:3002/admin/portals/${tenantSlug}/fields/${editingField.id}`, {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: finalKey,
+            label: fieldForm.label,
+            type: fieldForm.type,
+            section: fieldForm.section,
+            required: fieldForm.required,
+            placeholder: fieldForm.placeholder || null,
+            showInList: fieldForm.showInList,
+            maxLength: fieldForm.maxLength ? parseInt(fieldForm.maxLength, 10) : null,
+            imageWidth: fieldForm.imageWidth ? parseInt(fieldForm.imageWidth, 10) : null,
+            imageHeight: fieldForm.imageHeight ? parseInt(fieldForm.imageHeight, 10) : null,
+            allowCaption: fieldForm.allowCaption,
+            options: optionsPayload,
+          }),
+        });
+        const data = await res.json();
+        if (data.status_code !== 200) {
+          // Revert local state and tell the user what went wrong
+          setTenant({ ...tenant!, fields: tenant?.fields || [] });
+          alert(`Failed to save field: ${data.status_message}`);
+          return;
+        }
+      } catch {
+        // Network error — revert and alert
+        setTenant({ ...tenant!, fields: tenant?.fields || [] });
+        alert("Failed to save field: could not reach the server. Check your connection and try again.");
+        return;
+      }
+
     } else {
       // Add new field - update local state immediately (like wizard)
       const allFields = tenant?.fields || [];

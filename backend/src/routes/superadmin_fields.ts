@@ -56,9 +56,11 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Validate dimensions for IMAGE fields
+    // Validate dimensions for IMAGE fields.
+    // Use != null (loose) so that null values are treated as "not provided" and
+    // skip the check — only validate when the caller actually sends real numbers.
     if (type === 'IMAGE' || type === 'IMAGE_MULTI') {
-      if (imageWidth !== undefined || imageHeight !== undefined) {
+      if (imageWidth != null || imageHeight != null) {
         if (!imageWidth || !imageHeight) {
           return res.status(400).json({
             status_code: 400,
@@ -146,9 +148,11 @@ router.put('/:fieldId', async (req, res) => {
       });
     }
 
-    // Validate dimensions for IMAGE fields
+    // Validate dimensions for IMAGE fields.
+    // Use != null (loose) so that null values are treated as "not provided" and
+    // skip the check — only validate when the caller actually sends real numbers.
     if (type === 'IMAGE' || type === 'IMAGE_MULTI') {
-      if (imageWidth !== undefined || imageHeight !== undefined) {
+      if (imageWidth != null || imageHeight != null) {
         if (!imageWidth || !imageHeight) {
           return res.status(400).json({
             status_code: 400,
