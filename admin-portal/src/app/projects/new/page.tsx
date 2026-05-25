@@ -6,6 +6,7 @@ import {
   FileText, GripVertical, Star, StarOff, ArrowRight
 } from 'lucide-react';
 import Header from '@/components/Header';
+import ImageCropper from '@/components/dynamic-form/ImageCropper';
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragEndEvent
 } from '@dnd-kit/core';
@@ -229,11 +230,32 @@ export default function NewProjectPage() {
     setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
+  // ── Banner crop state ─────────────────────────────────────────────────────
+  const [bannerCropOpen, setBannerCropOpen] = useState(false);
+  const [pendingBannerFile, setPendingBannerFile] = useState<File | null>(null);
+
   // ── Banner handlers ───────────────────────────────────────────────────────
   const addBannerImage = (file: File) => {
     if (bannerImages.length >= 3) return;
     const id = Math.random().toString(36).slice(2);
     setBannerImages(prev => [...prev, { id, file, url: URL.createObjectURL(file), isCover: prev.length === 0 }]);
+  };
+
+  const handleBannerFileSelected = (file: File) => {
+    if (bannerImages.length >= 3) return;
+    setPendingBannerFile(file);
+    setBannerCropOpen(true);
+  };
+
+  const handleBannerCropComplete = (croppedBlob: Blob) => {
+    const croppedFile = new File(
+      [croppedBlob],
+      pendingBannerFile!.name.replace(/\.[^/.]+$/, '.jpg'),
+      { type: 'image/jpeg' }
+    );
+    addBannerImage(croppedFile);
+    setBannerCropOpen(false);
+    setPendingBannerFile(null);
   };
   const removeBannerImage = (id: string) => {
     setBannerImages(prev => {
@@ -368,6 +390,16 @@ export default function NewProjectPage() {
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
 
+      {bannerCropOpen && pendingBannerFile && (
+        <ImageCropper
+          file={pendingBannerFile}
+          targetWidth={1200}
+          targetHeight={675}
+          onCropComplete={handleBannerCropComplete}
+          onCancel={() => { setBannerCropOpen(false); setPendingBannerFile(null); }}
+        />
+      )}
+
       <Header />
 
       {/* ── Stepper Bar ── */}
@@ -487,7 +519,7 @@ export default function NewProjectPage() {
                             type="file"
                             accept="image/*"
                             className="hidden"
-                            onChange={(e) => { const f = e.target.files?.[0]; if (f) addBannerImage(f); e.target.value = ''; }}
+                            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBannerFileSelected(f); e.target.value = ''; }}
                           />
                         </label>
                       );

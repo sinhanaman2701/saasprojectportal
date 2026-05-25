@@ -5,6 +5,7 @@ import {
   ChevronLeft, CheckCircle, Plus, X, Upload,
   FileText, GripVertical, Star, StarOff, ArrowRight
 } from 'lucide-react';
+import ImageCropper from '@/components/dynamic-form/ImageCropper';
 
 // ─── Auto-resizing Textarea ──────────────────────────────────────────────────
 function AutoResizeTextarea({ value, onChange, placeholder, name, rows = 3 }: {
@@ -160,10 +161,32 @@ export default function EditProjectPage({ params }: EditProjectProps) {
     setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
+  // ── Banner crop state ─────────────────────────────────────────────────────
+  const [bannerCropOpen, setBannerCropOpen] = useState(false);
+  const [pendingBannerFile, setPendingBannerFile] = useState<File | null>(null);
+
   const addBannerImage = (file: File) => {
     if (bannerImages.length >= 3) return;
     setBannerImages(prev => [...prev, { id: Math.random().toString(36).slice(2), file, url: URL.createObjectURL(file), isCover: prev.length === 0 }]);
   };
+
+  const handleBannerFileSelected = (file: File) => {
+    if (bannerImages.length >= 3) return;
+    setPendingBannerFile(file);
+    setBannerCropOpen(true);
+  };
+
+  const handleBannerCropComplete = (croppedBlob: Blob) => {
+    const croppedFile = new File(
+      [croppedBlob],
+      pendingBannerFile!.name.replace(/\.[^/.]+$/, '.jpg'),
+      { type: 'image/jpeg' }
+    );
+    addBannerImage(croppedFile);
+    setBannerCropOpen(false);
+    setPendingBannerFile(null);
+  };
+
   const removeBannerImage = (id: string) => {
     setBannerImages(prev => {
       const updated = prev.filter(b => b.id !== id);
@@ -259,6 +282,16 @@ export default function EditProjectPage({ params }: EditProjectProps) {
   return (
     <div className="min-h-screen bg-[#FAFAF8]">
 
+      {bannerCropOpen && pendingBannerFile && (
+        <ImageCropper
+          file={pendingBannerFile}
+          targetWidth={1200}
+          targetHeight={675}
+          onCropComplete={handleBannerCropComplete}
+          onCancel={() => { setBannerCropOpen(false); setPendingBannerFile(null); }}
+        />
+      )}
+
       {/* ── Top Header (matching dashboard) ── */}
       <header className="bg-white border-b border-[#E7E5E4] sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
@@ -339,7 +372,7 @@ export default function EditProjectPage({ params }: EditProjectProps) {
                         <label className="flex flex-col items-center justify-center h-full min-h-[106px] cursor-pointer hover:bg-[#F5F3EF] transition-colors">
                           <Upload size={18} className="text-[#A8A29E] mb-1" />
                           <span className="text-[10px] text-[#A8A29E] font-medium">Slot {idx + 1}</span>
-                          <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) addBannerImage(f); }} />
+                          <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBannerFileSelected(f); e.target.value = ''; }} />
                         </label>
                       )}
                     </div>
