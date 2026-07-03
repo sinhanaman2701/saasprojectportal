@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { TenantStatus } from '@prisma/client';
-import prisma from '../lib/prisma';
+import { queryOne } from '../lib/db';
 import { JWT_SECRET } from '../lib/env';
 
 declare global {
@@ -27,10 +26,10 @@ export async function tenantApiAuth(req: Request, res: Response, next: NextFunct
   // ─── Mode 1: Access-Token (static token for mobile API) ───────────────────
   if (accessToken) {
     try {
-      const tenant = await prisma.tenant.findUnique({
-        where: { accessToken },
-        select: { id: true, slug: true, name: true, status: true },
-      });
+      const tenant = await queryOne<{ id: number; slug: string; name: string; status: string }>(
+        `SELECT id, slug, name, status FROM "Tenant" WHERE "accessToken" = $1`,
+        [accessToken]
+      );
 
       if (!tenant) {
         return res.status(401).json({
@@ -71,10 +70,10 @@ export async function tenantApiAuth(req: Request, res: Response, next: NextFunct
 
       req.user = decoded;
 
-      const tenant = await prisma.tenant.findUnique({
-        where: { id: decoded.tenantId },
-        select: { id: true, slug: true, name: true, status: true },
-      });
+      const tenant = await queryOne<{ id: number; slug: string; name: string; status: string }>(
+        `SELECT id, slug, name, status FROM "Tenant" WHERE id = $1`,
+        [decoded.tenantId]
+      );
 
       if (!tenant || tenant.status === 'SUSPENDED') {
         return res.status(401).json({

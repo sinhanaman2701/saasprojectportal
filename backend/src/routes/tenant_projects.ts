@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { TenantField } from '@prisma/client';
+import { TenantField } from '../types/enums';
 import tenantMiddleware from '../middleware/tenant';
 import tenantAuth from '../middleware/tenantAuth';
 import { tenantApiAuth } from '../middleware/tenantApiAuth';
@@ -7,7 +7,7 @@ import { createTenantUpload, processUploadedFiles } from '../middleware/upload';
 import { validateProjectData } from '../middleware/tenantProjectValidation';
 import { generatePostmanCollection } from '../utils/postman-generator';
 import { getIconUrl } from '../utils/icon-map';
-import prisma from '../lib/prisma';
+import { query, queryOne } from '../lib/db';
 
 const router = Router();
 
@@ -22,10 +22,10 @@ async function getTenantFields(tenantId: number): Promise<TenantField[]> {
   const cached = fieldCache.get(tenantId);
   if (cached && cached.expiry > Date.now()) return cached.fields;
 
-  const fields = await prisma.tenantField.findMany({
-    where: { tenantId },
-    orderBy: [{ section: 'asc' }, { order: 'asc' }],
-  });
+  const fields = await query<TenantField>(
+    `SELECT * FROM "TenantField" WHERE "tenantId" = $1 ORDER BY section ASC, "order" ASC`,
+    [tenantId]
+  );
   fieldCache.set(tenantId, { fields, expiry: Date.now() + FIELD_CACHE_TTL_MS });
   return fields;
 }
@@ -144,27 +144,26 @@ router.get('/:slug/projects/stats', tenantApiAuth, async (req, res) => {
   try {
     const tenantId = req.tenantId!;
 
-    const [total, active, drafts, archived, projects] = await Promise.all([
-      prisma.tenantProject.count({ where: { tenantId } }),
-      prisma.tenantProject.count({ where: { tenantId, isActive: true, isArchived: false, isDraft: false } }),
-      prisma.tenantProject.count({ where: { tenantId, isDraft: true } }),
-      prisma.tenantProject.count({ where: { tenantId, isArchived: true } }),
-      prisma.tenantProject.findMany({
-        where: { tenantId },
-        select: { id: true, updatedAt: true },
-        orderBy: { updatedAt: 'desc' },
-        take: 10,
-      }),
-    ]);
+    const [totalRow] = await query<{ count: string }>(`SELECT COUNT(*) AS count FROM "TenantProject" WHERE "tenantId" = $1`, [tenantId]);
+    const [activeRow] = await query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM "TenantProject" WHERE "tenantId" = $1 AND "isActive" = true AND "isArchived" = false AND "isDraft" = false`,
+      [tenantId]
+    );
+    const [draftsRow] = await query<{ count: string }>(`SELECT COUNT(*) AS count FROM "TenantProject" WHERE "tenantId" = $1 AND "isDraft" = true`, [tenantId]);
+    const [archivedRow] = await query<{ count: string }>(`SELECT COUNT(*) AS count FROM "TenantProject" WHERE "tenantId" = $1 AND "isArchived" = true`, [tenantId]);
+    const projects = await query<{ id: number; updatedAt: Date }>(
+      `SELECT id, "updatedAt" FROM "TenantProject" WHERE "tenantId" = $1 ORDER BY "updatedAt" DESC LIMIT 10`,
+      [tenantId]
+    );
 
     res.json({
       status_code: 200,
       status_message: 'Success',
       response_data: {
-        total,
-        active,
-        drafts,
-        archived,
+        total: parseInt(totalRow.count, 10),
+        active: parseInt(activeRow.count, 10),
+        drafts: parseInt(draftsRow.count, 10),
+        archived: parseInt(archivedRow.count, 10),
         topProjects: projects.map((p) => ({
           id: p.id,
           lastUpdated: p.updatedAt,
@@ -186,15 +185,16 @@ router.get('/:slug/projects', tenantApiAuth, async (req, res) => {
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
-    const where: { tenantId: number; isArchived?: boolean; isDraft?: boolean; status?: string } = { tenantId };
+    const conditions: string[] = [`"tenantId" = $1`];
+    const params: unknown[] = [tenantId];
 
     // filter: 'active' | 'archived' | 'drafts' | 'all'
     switch (filter) {
       case 'archived':
-        where.isArchived = true;
+        conditions.push(`"isArchived" = true`);
         break;
       case 'drafts':
-        where.isDraft = true;
+        conditions.push(`"isDraft" = true`);
         break;
       case 'all':
         // No flags - return all projects
@@ -202,18 +202,28 @@ router.get('/:slug/projects', tenantApiAuth, async (req, res) => {
       case 'active':
       default:
         // Active = not archived and not draft
-        // Handle edge case where all flags are false (treat as active)
-        where.isArchived = false;
-        where.isDraft = false;
+        conditions.push(`"isArchived" = false`);
+        conditions.push(`"isDraft" = false`);
         break;
     }
 
-    if (status) where.status = status;
+    if (status) {
+      params.push(status);
+      conditions.push(`status = $${params.length}`);
+    }
 
-    const [projects, total] = await Promise.all([
-      prisma.tenantProject.findMany({ where: where as any, skip, take: limitNum, orderBy: { createdAt: 'desc' } }),
-      prisma.tenantProject.count({ where: where as any }),
-    ]);
+    const whereClause = conditions.join(' AND ');
+
+    params.push(limitNum, skip);
+    const projects = await query<any>(
+      `SELECT * FROM "TenantProject" WHERE ${whereClause} ORDER BY "createdAt" DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+    const [{ count: total }] = await query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM "TenantProject" WHERE ${whereClause}`,
+      params.slice(0, params.length - 2)
+    );
+    const totalNum = parseInt(total, 10);
 
     const fields = await getTenantFields(tenantId);
     const serverBaseUrl = `${req.protocol}://${req.get('host')}`;
@@ -234,9 +244,9 @@ router.get('/:slug/projects', tenantApiAuth, async (req, res) => {
       return {
         ...shaped,
         data: dataWithIcons,
-        total,
+        total: totalNum,
         page: pageNum,
-        pages: Math.ceil(total / limitNum),
+        pages: Math.ceil(totalNum / limitNum),
       };
     });
 
@@ -249,9 +259,10 @@ router.get('/:slug/projects', tenantApiAuth, async (req, res) => {
 // GET /api/:slug/projects/:id — get single project (Access-Token required)
 router.get('/:slug/projects/:id', tenantApiAuth, async (req, res) => {
   try {
-    const project = await prisma.tenantProject.findFirst({
-      where: { id: parseInt(req.params.id as string), tenantId: req.tenantId! },
-    });
+    const project = await queryOne<any>(
+      `SELECT * FROM "TenantProject" WHERE id = $1 AND "tenantId" = $2`,
+      [parseInt(req.params.id as string), req.tenantId!]
+    );
 
     if (!project) {
       return res.status(404).json({ status_code: 404, status_message: 'Project not found' });
@@ -348,7 +359,7 @@ router.post('/:slug/projects', tenantAuth, async (req, res) => {
       if (_fieldKeys && files.length > 0) {
         const fieldKeys = _fieldKeys.split(',');
         try {
-          attachments = await processUploadedFiles(files, fieldKeys, tenantId, prisma, captions);
+          attachments = await processUploadedFiles(files, fieldKeys, tenantId, captions);
 
           // Merge captions from _attachmentMetadata (takes precedence over _captionData)
           // For new uploads, match by index since URLs are generated after upload
@@ -375,10 +386,10 @@ router.post('/:slug/projects', tenantAuth, async (req, res) => {
         // No new files uploaded, but attachment metadata exists (e.g., captions added without new uploads)
         // Fetch field config to filter captions based on allowCaption
         for (const fieldKey of Object.keys(attachmentMetadata)) {
-          const field = await prisma.tenantField.findFirst({
-            where: { tenantId, key: fieldKey },
-            select: { allowCaption: true },
-          });
+          const field = await queryOne<{ allowCaption: boolean }>(
+            `SELECT "allowCaption" FROM "TenantField" WHERE "tenantId" = $1 AND key = $2`,
+            [tenantId, fieldKey]
+          );
 
           attachments[fieldKey] = field?.allowCaption
             ? attachmentMetadata[fieldKey]
@@ -397,16 +408,12 @@ router.post('/:slug/projects', tenantAuth, async (req, res) => {
         });
       }
 
-      const project = await prisma.tenantProject.create({
-        data: {
-          tenantId,
-          status: rawStatus || 'ONGOING',
-          isDraft,
-          isActive: !isDraft,
-          data: dataObj,
-          attachments,
-        },
-      });
+      const project = await queryOne(
+        `INSERT INTO "TenantProject" (status, "isDraft", "isActive", data, attachments, "tenantId", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, now())
+         RETURNING *`,
+        [rawStatus || 'ONGOING', isDraft, !isDraft, JSON.stringify(dataObj), JSON.stringify(attachments), tenantId]
+      );
 
       res.status(201).json({ status_code: 201, status_message: 'Project created', response_data: project });
     });
@@ -421,7 +428,7 @@ router.put('/:slug/projects/:id', tenantAuth, async (req, res) => {
     const id = req.params.id as string;
     const tenantId = req.tenant!.id;
 
-    const existing = await prisma.tenantProject.findFirst({ where: { id: parseInt(id), tenantId } });
+    const existing = await queryOne<any>(`SELECT * FROM "TenantProject" WHERE id = $1 AND "tenantId" = $2`, [parseInt(id), tenantId]);
     if (!existing) {
       return res.status(404).json({ status_code: 404, status_message: 'Project not found' });
     }
@@ -440,12 +447,6 @@ router.put('/:slug/projects/:id', tenantAuth, async (req, res) => {
       // Parse captions from form data
       const captions: Record<string, string[]> = _captionData ? JSON.parse(_captionData) : {};
 
-      // Get existing attachments from database
-      const existingAttachments: Record<string, { url: string; caption?: string; order: number; isCover: boolean }[]> =
-        typeof existing.attachments === 'string'
-          ? JSON.parse(existing.attachments)
-          : (existing.attachments as Record<string, { url: string; caption?: string; order: number; isCover: boolean }[]> || {});
-
       // Parse attachment metadata from frontend (contains full attachment state including existing URLs with updated isCover/order)
       const attachmentMetadata: Record<string, { url: string; caption?: string; order: number; isCover: boolean }[]> = _attachmentMetadata
         ? JSON.parse(_attachmentMetadata)
@@ -458,7 +459,7 @@ router.put('/:slug/projects/:id', tenantAuth, async (req, res) => {
       if (_fieldKeys && files.length > 0) {
         const fieldKeys = _fieldKeys.split(',');
         // Process new files through storage abstraction with captions
-        const processedAttachments = await processUploadedFiles(files, fieldKeys, tenantId, prisma, captions);
+        const processedAttachments = await processUploadedFiles(files, fieldKeys, tenantId, captions);
         Object.assign(newFilesFromUpload, processedAttachments);
       }
 
@@ -473,10 +474,10 @@ router.put('/:slug/projects/:id', tenantAuth, async (req, res) => {
         const uploadedFiles = newFilesFromUpload[fieldKey] || [];
 
         // Fetch field config to check allowCaption
-        const field = await prisma.tenantField.findFirst({
-          where: { tenantId, key: fieldKey },
-          select: { allowCaption: true },
-        });
+        const field = await queryOne<{ allowCaption: boolean }>(
+          `SELECT "allowCaption" FROM "TenantField" WHERE "tenantId" = $1 AND key = $2`,
+          [tenantId, fieldKey]
+        );
 
         // Metadata items come first (existing URLs with potentially updated isCover/order)
         // Filter caption if allowCaption is disabled
@@ -499,10 +500,10 @@ router.put('/:slug/projects/:id', tenantAuth, async (req, res) => {
       // Handle fields that only have new files (no metadata)
       for (const fieldKey of Object.keys(newFilesFromUpload)) {
         if (!finalAttachments[fieldKey]) {
-          const field = await prisma.tenantField.findFirst({
-            where: { tenantId, key: fieldKey },
-            select: { allowCaption: true },
-          });
+          const field = await queryOne<{ allowCaption: boolean }>(
+            `SELECT "allowCaption" FROM "TenantField" WHERE "tenantId" = $1 AND key = $2`,
+            [tenantId, fieldKey]
+          );
           finalAttachments[fieldKey] = field?.allowCaption
             ? newFilesFromUpload[fieldKey]
             : newFilesFromUpload[fieldKey].map(f => ({ ...f, caption: undefined }));
@@ -533,22 +534,21 @@ router.put('/:slug/projects/:id', tenantAuth, async (req, res) => {
       // Unarchive whenever the project transitions to draft or active via PUT
       const shouldUnarchive = draftChanged || (!newIsDraft && newIsActive && existing.isArchived);
 
-      const updateData: Record<string, unknown> = {
-        data: dataObj,
-        attachments: finalAttachments,
-        ...(rawStatus && { status: rawStatus }),
-        ...(rawIsDraft !== undefined && { isDraft: newIsDraft }),
-        ...(rawIsActive !== undefined && { isActive: rawIsActive === 'true' || rawIsActive === true }),
-        // Auto-set isActive when draft status changes
-        ...(draftChanged && { isActive: newIsActive }),
-        // Clear isArchived whenever moving to draft or active state
-        ...(shouldUnarchive && { isArchived: false }),
-      };
+      const sets: string[] = [`data = $1`, `attachments = $2`, `"updatedAt" = now()`];
+      const params: unknown[] = [JSON.stringify(dataObj), JSON.stringify(finalAttachments)];
+      const set = (col: string, val: unknown) => { params.push(val); sets.push(`"${col}" = $${params.length}`); };
 
-      const updated = await prisma.tenantProject.update({
-        where: { id: parseInt(id) },
-        data: updateData,
-      });
+      if (rawStatus) set('status', rawStatus);
+      if (rawIsDraft !== undefined) set('isDraft', newIsDraft);
+      if (rawIsActive !== undefined) set('isActive', rawIsActive === 'true' || rawIsActive === true);
+      if (draftChanged) set('isActive', newIsActive);
+      if (shouldUnarchive) set('isArchived', false);
+
+      params.push(parseInt(id));
+      const updated = await queryOne(
+        `UPDATE "TenantProject" SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`,
+        params
+      );
 
       res.json({ status_code: 200, status_message: 'Project updated', response_data: updated });
     });
@@ -564,26 +564,30 @@ router.patch('/:slug/projects/:id', tenantAuth, async (req, res) => {
     const tenantId = req.tenant!.id;
     const { isActive, isArchived, isDraft } = req.body;
 
-    const existing = await prisma.tenantProject.findFirst({ where: { id: parseInt(id), tenantId } });
+    const existing = await queryOne(`SELECT id FROM "TenantProject" WHERE id = $1 AND "tenantId" = $2`, [parseInt(id), tenantId]);
     if (!existing) {
       return res.status(404).json({ status_code: 404, status_message: 'Project not found' });
     }
 
-    const updateData: { isActive?: boolean; isArchived?: boolean; isDraft?: boolean } = {};
-    if (isActive !== undefined) updateData.isActive = isActive;
+    const sets: string[] = [`"updatedAt" = now()`];
+    const params: unknown[] = [];
+    const set = (col: string, val: unknown) => { params.push(val); sets.push(`"${col}" = $${params.length}`); };
+
+    if (isActive !== undefined) set('isActive', isActive);
     if (isArchived !== undefined) {
-      updateData.isArchived = isArchived;
-      if (isArchived) updateData.isActive = false;
+      set('isArchived', isArchived);
+      if (isArchived) set('isActive', false);
     }
     if (isDraft !== undefined) {
-      updateData.isDraft = isDraft;
-      if (!isDraft) updateData.isActive = true;
+      set('isDraft', isDraft);
+      if (!isDraft) set('isActive', true);
     }
 
-    const updated = await prisma.tenantProject.update({
-      where: { id: parseInt(id) },
-      data: updateData,
-    });
+    params.push(parseInt(id));
+    const updated = await queryOne(
+      `UPDATE "TenantProject" SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`,
+      params
+    );
 
     res.json({ status_code: 200, status_message: 'Project updated', response_data: updated });
   } catch (error) {
@@ -597,15 +601,15 @@ router.delete('/:slug/projects/:id', tenantAuth, async (req, res) => {
     const id = req.params.id as string;
     const tenantId = req.tenant!.id;
 
-    const existing = await prisma.tenantProject.findFirst({ where: { id: parseInt(id), tenantId } });
+    const existing = await queryOne(`SELECT id FROM "TenantProject" WHERE id = $1 AND "tenantId" = $2`, [parseInt(id), tenantId]);
     if (!existing) {
       return res.status(404).json({ status_code: 404, status_message: 'Project not found' });
     }
 
-    await prisma.tenantProject.update({
-      where: { id: parseInt(id) },
-      data: { isArchived: true, isActive: false },
-    });
+    await query(
+      `UPDATE "TenantProject" SET "isArchived" = true, "isActive" = false, "updatedAt" = now() WHERE id = $1`,
+      [parseInt(id)]
+    );
 
     res.json({ status_code: 200, status_message: 'Project archived' });
   } catch (error) {
@@ -618,10 +622,10 @@ router.delete('/:slug/projects/:id', tenantAuth, async (req, res) => {
 router.get('/:slug/fields', tenantAuth, async (req, res) => {
   try {
     const tenantId = req.tenant!.id;
-    const fields = await prisma.tenantField.findMany({
-      where: { tenantId },
-      orderBy: [{ order: 'asc' }],
-    });
+    const fields = await query<TenantField>(
+      `SELECT * FROM "TenantField" WHERE "tenantId" = $1 ORDER BY "order" ASC`,
+      [tenantId]
+    );
 
     // Calculate section order based on minimum field order in each section
     const sectionOrderMap = new Map<string, number>();
@@ -652,15 +656,15 @@ router.get('/:slug/fields', tenantAuth, async (req, res) => {
 router.get('/:slug/postman.json', tenantApiAuth, async (req, res) => {
   try {
     const tenantId = req.tenantId!;
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: { name: true, accessToken: true },
-    });
+    const tenant = await queryOne<{ name: string; accessToken: string | null }>(
+      `SELECT name, "accessToken" FROM "Tenant" WHERE id = $1`,
+      [tenantId]
+    );
 
-    const fields = await prisma.tenantField.findMany({
-      where: { tenantId },
-      orderBy: [{ order: 'asc' }],
-    });
+    const fields = await query<TenantField>(
+      `SELECT * FROM "TenantField" WHERE "tenantId" = $1 ORDER BY "order" ASC`,
+      [tenantId]
+    );
 
     // Calculate section order based on minimum field order in each section
     const sectionOrderMap = new Map<string, number>();

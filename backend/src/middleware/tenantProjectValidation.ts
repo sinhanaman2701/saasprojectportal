@@ -1,5 +1,5 @@
-import { FieldType } from '@prisma/client';
-import prisma from '../lib/prisma';
+import { FieldType } from '../types/enums';
+import { query } from '../lib/db';
 
 export interface FieldError {
   field: string;
@@ -23,17 +23,18 @@ export async function validateProjectData(
 ): Promise<ValidationResult> {
   const errors: FieldError[] = [];
 
-  const fields = await prisma.tenantField.findMany({
-    where: { tenantId },
-    select: {
-      key: true,
-      label: true,
-      type: true,
-      required: true,
-      options: true,
-      validation: true,
-    },
-  });
+  const fields = await query<{
+    key: string;
+    label: string;
+    type: FieldType;
+    required: boolean;
+    options: unknown;
+    validation: unknown;
+    maxLength: number | null;
+  }>(
+    `SELECT key, label, type, required, options, validation, "maxLength" FROM "TenantField" WHERE "tenantId" = $1`,
+    [tenantId]
+  );
 
   for (const field of fields) {
     const value = data[field.key];

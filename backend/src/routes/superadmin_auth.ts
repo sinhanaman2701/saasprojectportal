@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import prisma from '../lib/prisma';
+import { query, queryOne } from '../lib/db';
 import { JWT_SECRET, JWT_EXPIRY, type JwtExpiry } from '../lib/env';
 
 const router = Router();
@@ -15,7 +15,10 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ status_code: 400, status_message: 'Email and password are required' });
     }
 
-    const superadmin = await prisma.superadmin.findUnique({ where: { email } });
+    const superadmin = await queryOne<{ id: number; email: string; passwordHash: string }>(
+      `SELECT id, email, "passwordHash" FROM "Superadmin" WHERE email = $1`,
+      [email]
+    );
     if (!superadmin) {
       return res.status(401).json({ status_code: 401, status_message: 'Invalid credentials' });
     }
@@ -50,8 +53,8 @@ router.post('/register', async (req, res) => {
     // ── First-run gate ────────────────────────────────────────────────────────
     // Count existing superadmins. If any exist, the platform is already
     // bootstrapped and this endpoint must never create another account.
-    const existingCount = await prisma.superadmin.count();
-    if (existingCount > 0) {
+    const [{ count: existingCount }] = await query<{ count: string }>(`SELECT COUNT(*) AS count FROM "Superadmin"`);
+    if (parseInt(existingCount, 10) > 0) {
       return res.status(403).json({
         status_code: 403,
         status_message: 'Platform already initialized. Use POST /superadmin/auth/login instead.',
@@ -69,9 +72,10 @@ router.post('/register', async (req, res) => {
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
-    const superadmin = await prisma.superadmin.create({
-      data: { email, passwordHash },
-    });
+    const superadmin = (await queryOne<{ id: number; email: string }>(
+      `INSERT INTO "Superadmin" (email, "passwordHash", "updatedAt") VALUES ($1, $2, now()) RETURNING id, email`,
+      [email, passwordHash]
+    ))!;
 
     const token = jwt.sign(
       { id: superadmin.id, email: superadmin.email, role: 'superadmin' },

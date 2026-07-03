@@ -9,8 +9,8 @@ A production-ready multi-tenant SaaS platform for managing real estate listings.
 | Layer | Technology |
 |-------|-----------|
 | Frontend | Next.js 16, React 19, TailwindCSS v4, @dnd-kit |
-| Backend | Node.js, Express, TypeScript, Prisma ORM |
-| Database | PostgreSQL |
+| Backend | Node.js, Express, TypeScript, `pg` (node-postgres) |
+| Database | PostgreSQL (raw SQL, no ORM) |
 | Auth | JWT (stateless, dual-system) |
 | File Storage | Local (dev) / S3 (prod) |
 
@@ -39,19 +39,29 @@ npm install
 
 cat > .env <<EOF
 DATABASE_URL="postgresql://postgres@localhost:5432/saasportal?schema=public"
-JWT_SECRET="your-secret-key-change-in-production"
+JWT_SECRET="your-secret-key-change-in-production-min-32-chars"
 JWT_EXPIRY="7d"
 PORT=3002
 POSTMAN_BASE_URL="http://localhost:3002"
 STORAGE_TYPE=local
 ALLOWED_ORIGINS="http://localhost:3000,http://localhost:3001"
+# Optional: static bearer token for the legacy /projects/* mobile API.
+# Leave unset to disable those endpoints entirely (fail closed).
+LEGACY_ACCESS_TOKEN="a-long-random-string"
 EOF
 
-npx prisma generate
-npx prisma migrate deploy
+npm run db:migrate
 
 npm run dev
 ```
+
+`JWT_SECRET` is required and must be 32+ characters — the server refuses to
+start without it (no insecure default is used).
+
+Migrations are plain SQL files in `backend/db/migrations/`, applied by a
+small tracked runner (`backend/db/migrate.ts`) — no ORM CLI required. To add
+a new migration, add a new numbered `.sql` file to that directory and run
+`npm run db:migrate` again; it only applies files it hasn't seen before.
 
 Backend runs on **http://localhost:3002**
 
@@ -106,7 +116,7 @@ After the first superadmin is created, this endpoint is permanently disabled. Us
 ### Multi-Tenant Design
 
 - Single deployment serves unlimited tenants
-- Each tenant has isolated data via `tenantId` scoping on all Prisma queries
+- Each tenant has isolated data via `tenantId` scoping on all SQL queries
 - Dynamic form schemas via `TenantField` table — no code changes needed to add fields
 - Self-service portal creation via 5-step wizard
 
@@ -212,10 +222,10 @@ Icons are served as SVGs from `/icons/<name>.svg` (bundled with the codebase, no
 │       ├── utils/             # icon-map, default-fields, postman-generator
 │       ├── icons/             # SVG icon assets (served at /icons/)
 │       ├── storage/           # Local/S3 abstraction
-│       └── lib/               # Prisma client
-│   └── prisma/
-│       ├── schema.prisma
-│       └── migrations/
+│       └── lib/               # db.ts (pg pool + query helpers), env.ts, logger.ts
+│   └── db/
+│       ├── migrate.ts         # migration runner
+│       └── migrations/        # plain .sql files, applied in filename order
 └── README.md
 ```
 
@@ -261,9 +271,10 @@ S3_BUCKET=your-bucket-name
 ### Backend
 
 ```bash
-npm run dev      # Start dev server with nodemon
-npm run build    # Compile TypeScript
-npm run start    # Start production server
+npm run dev        # Start dev server with nodemon
+npm run build      # Compile TypeScript
+npm run start      # Start production server
+npm run db:migrate # Apply any pending SQL migrations in db/migrations/
 ```
 
 ### Frontend

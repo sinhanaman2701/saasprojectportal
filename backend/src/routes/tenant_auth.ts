@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import tenantMiddleware from '../middleware/tenant';
 import tenantAuth, { type TenantContext } from '../middleware/tenantAuth';
 import superadminAuth from '../middleware/superadminAuth';
-import prisma from '../lib/prisma';
+import { query, queryOne } from '../lib/db';
 import { JWT_SECRET, JWT_EXPIRY, type JwtExpiry } from '../lib/env';
 
 const router = Router();
@@ -28,9 +28,10 @@ router.post('/:slug/auth/login', tenantMiddleware, async (req, res) => {
       return res.status(400).json({ status_code: 400, status_message: 'Email and password are required' });
     }
 
-    const admin = await prisma.tenantAdmin.findFirst({
-      where: { email, tenantId },
-    });
+    const admin = await queryOne<{ id: number; email: string; passwordHash: string; tenantId: number }>(
+      `SELECT id, email, "passwordHash", "tenantId" FROM "TenantAdmin" WHERE email = $1 AND "tenantId" = $2`,
+      [email, tenantId]
+    );
 
     if (!admin) {
       return res.status(401).json({ status_code: 401, status_message: 'Invalid credentials' });
@@ -73,18 +74,21 @@ router.post('/register-admin', superadminAuth, tenantMiddleware, async (req, res
       return res.status(400).json({ status_code: 400, status_message: 'Password must be at least 8 characters' });
     }
 
-    const existing = await prisma.tenantAdmin.findFirst({
-      where: { tenantId, email },
-    });
+    const existing = await queryOne(
+      `SELECT id FROM "TenantAdmin" WHERE "tenantId" = $1 AND email = $2`,
+      [tenantId, email]
+    );
     if (existing) {
       return res.status(409).json({ status_code: 409, status_message: 'Admin with this email already exists for this tenant' });
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
-    const admin = await prisma.tenantAdmin.create({
-      data: { email, passwordHash, name: name || null, tenantId },
-      select: { id: true, email: true, name: true, tenantId: true, createdAt: true },
-    });
+    const admin = await queryOne(
+      `INSERT INTO "TenantAdmin" (email, "passwordHash", name, "tenantId", "updatedAt")
+       VALUES ($1, $2, $3, $4, now())
+       RETURNING id, email, name, "tenantId", "createdAt"`,
+      [email, passwordHash, name || null, tenantId]
+    );
 
     res.status(201).json({ status_code: 201, status_message: 'Tenant admin created', response_data: admin });
   } catch (error) {
@@ -107,7 +111,10 @@ router.put('/:slug/auth/change-password', tenantAuth, async (req, res) => {
       return res.status(400).json({ status_code: 400, status_message: 'New password must be at least 8 characters' });
     }
 
-    const admin = await prisma.tenantAdmin.findUnique({ where: { id: adminId, tenantId } });
+    const admin = await queryOne<{ id: number; passwordHash: string }>(
+      `SELECT id, "passwordHash" FROM "TenantAdmin" WHERE id = $1 AND "tenantId" = $2`,
+      [adminId, tenantId]
+    );
     if (!admin) {
       return res.status(404).json({ status_code: 404, status_message: 'Admin not found' });
     }
@@ -118,10 +125,10 @@ router.put('/:slug/auth/change-password', tenantAuth, async (req, res) => {
     }
 
     const newHash = await bcrypt.hash(newPassword, 12);
-    await prisma.tenantAdmin.update({
-      where: { id: adminId },
-      data: { passwordHash: newHash },
-    });
+    await query(
+      `UPDATE "TenantAdmin" SET "passwordHash" = $1, "updatedAt" = now() WHERE id = $2`,
+      [newHash, adminId]
+    );
 
     res.json({ status_code: 200, status_message: 'Password changed successfully' });
   } catch (error) {
@@ -135,10 +142,10 @@ router.get('/:slug/auth/me', tenantAuth, async (req, res) => {
     const adminId = req.user?.id as number;
     const tenantId = req.tenant!.id;
 
-    const admin = await prisma.tenantAdmin.findUnique({
-      where: { id: adminId, tenantId },
-      select: { id: true, email: true, name: true, createdAt: true },
-    });
+    const admin = await queryOne(
+      `SELECT id, email, name, "createdAt" FROM "TenantAdmin" WHERE id = $1 AND "tenantId" = $2`,
+      [adminId, tenantId]
+    );
 
     if (!admin) {
       return res.status(404).json({ status_code: 404, status_message: 'Admin not found' });

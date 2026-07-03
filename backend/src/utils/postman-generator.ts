@@ -1,4 +1,4 @@
-import { TenantField } from '@prisma/client';
+import { TenantField } from '../types/enums';
 
 interface PostmanVariable {
   key: string;

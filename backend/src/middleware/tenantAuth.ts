@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { TenantStatus } from '@prisma/client';
-import prisma from '../lib/prisma';
+import { TenantStatus } from '../types/enums';
+import { queryOne } from '../lib/db';
 import { JWT_SECRET } from '../lib/env';
 
 export interface TenantContext {
@@ -47,10 +47,10 @@ export default async function tenantAuthMiddleware(req: Request, res: Response, 
     (req as any).user = decoded;
 
     // Also set tenant context for routes that need it
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: decoded.tenantId },
-      select: { id: true, slug: true, name: true, logoUrl: true, status: true },
-    });
+    const tenant = await queryOne<TenantContext>(
+      `SELECT id, slug, name, "logoUrl", status FROM "Tenant" WHERE id = $1`,
+      [decoded.tenantId]
+    );
 
     if (tenant) {
       req.tenant = tenant;

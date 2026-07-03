@@ -5,6 +5,7 @@ import fs from 'fs';
 import sharp from 'sharp';
 import { storage } from '../storage';
 import { ProcessedFile } from '../storage/types';
+import { queryOne } from '../lib/db';
 
 const uploadDir = path.join(__dirname, '../../uploads');
 
@@ -107,7 +108,6 @@ export async function processUploadedFiles(
   files: Express.Multer.File[],
   fieldKeys: string[],
   tenantId: number,
-  prisma: any,
   captions?: Record<string, string[]>
 ): Promise<Record<string, { url: string; caption?: string; order: number; isCover: boolean }[]>> {
   const attachments: Record<string, { url: string; caption?: string; order: number; isCover: boolean }[]> = {};
@@ -116,10 +116,10 @@ export async function processUploadedFiles(
     const matchingFiles = files.filter((f) => f.fieldname === fieldKey);
 
     // Fetch field config from DB
-    const field = await prisma.tenantField.findFirst({
-      where: { tenantId, key: fieldKey },
-      select: { imageWidth: true, imageHeight: true, allowCaption: true },
-    });
+    const field = await queryOne<{ imageWidth: number | null; imageHeight: number | null; allowCaption: boolean }>(
+      `SELECT "imageWidth", "imageHeight", "allowCaption" FROM "TenantField" WHERE "tenantId" = $1 AND key = $2`,
+      [tenantId, fieldKey]
+    );
 
     attachments[fieldKey] = [];
 

@@ -7,6 +7,7 @@
     "dev": "nodemon src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "db:migrate": "ts-node db/migrate.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -15,7 +16,6 @@
   "type": "commonjs",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1079.0",
-    "@prisma/client": "^6.19.2",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
@@ -23,6 +23,7 @@
     "express-rate-limit": "^8.5.2",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.2.0",
+    "pg": "^8.22.0",
     "sharp": "^0.34.5"
   },
   "devDependencies": {
@@ -32,15 +33,12 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.1.0",
     "@types/node": "^25.5.0",
+    "@types/pg": "^8.20.0",
     "nodemon": "^3.1.14",
-    "prisma": "^6.19.2",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.2"
   },
   "allowScripts": {
-    "@prisma/client@6.19.2": true,
-    "@prisma/engines@6.19.2": true,
-    "prisma@6.19.2": true,
     "sharp@0.34.5": true,
     "fsevents@2.3.3": true
   }

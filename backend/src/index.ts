@@ -1,6 +1,12 @@
+// Must run before any other import: several modules (lib/env.ts) read and
+// validate process.env at import time, so dotenv has to populate it first.
+// TypeScript hoists all `import` statements above other statements even in
+// commonjs output, so calling dotenv.config() after the imports below runs
+// too late — it must be its own side-effecting import, first in the file.
+import 'dotenv/config';
+
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import path from 'path';
 import rateLimit from 'express-rate-limit';
 import { logger } from './lib/logger';
@@ -14,8 +20,6 @@ import superadminTenantRoutes from './routes/superadmin_tenant';
 import superadminFieldsRoutes from './routes/superadmin_fields';
 import tenantAuthRoutes from './routes/tenant_auth';
 import tenantProjectRoutes from './routes/tenant_projects';
-
-dotenv.config();
 
 const app = express();
 

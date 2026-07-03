@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import { TenantStatus } from '@prisma/client';
+import { TenantStatus } from '../types/enums';
 import { extractSlug } from '../utils/extractSlug';
-import prisma from '../lib/prisma';
+import { queryOne } from '../lib/db';
 
 export interface TenantContext {
   id: number;
@@ -31,10 +31,10 @@ export default async function tenantMiddleware(req: Request, res: Response, next
     return res.status(400).json({ status_code: 400, status_message: 'Tenant slug is required' });
   }
 
-  const tenant = await prisma.tenant.findUnique({
-    where: { slug },
-    select: { id: true, slug: true, name: true, logoUrl: true, status: true },
-  });
+  const tenant = await queryOne<TenantContext>(
+    `SELECT id, slug, name, "logoUrl", status FROM "Tenant" WHERE slug = $1`,
+    [slug]
+  );
 
   if (!tenant) {
     return res.status(404).json({ status_code: 404, status_message: `Tenant '${slug}' not found` });

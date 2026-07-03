@@ -3,7 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import adminAuthMiddleware from '../middleware/auth';
-import prisma from '../lib/prisma';
+import { query, queryOne, withTransaction } from '../lib/db';
 import { getIconUrl } from '../utils/icon-map';
 
 const router = Router();
@@ -36,16 +36,29 @@ const upload = multer({
 
 router.use(adminAuthMiddleware);
 
+async function attachRelations(projects: any[]) {
+  if (projects.length === 0) return projects;
+  const ids = projects.map((p) => p.id);
+  const [community, property, nearby] = await Promise.all([
+    query(`SELECT * FROM "CommunityAmenity" WHERE "projectId" = ANY($1::int[])`, [ids]),
+    query(`SELECT * FROM "PropertyAmenity" WHERE "projectId" = ANY($1::int[])`, [ids]),
+    query(`SELECT * FROM "NearbyPlace" WHERE "projectId" = ANY($1::int[])`, [ids]),
+  ]);
+  return projects.map((p) => ({
+    ...p,
+    communityAmenities: community.filter((c: any) => c.projectId === p.id),
+    propertyAmenities: property.filter((c: any) => c.projectId === p.id),
+    nearbyPlaces: nearby.filter((c: any) => c.projectId === p.id),
+  }));
+}
+
 router.get('/', async (req, res) => {
   try {
     const includeArchived = req.query.includeArchived === 'true';
-    const whereClause = includeArchived ? {} : { isArchived: false };
-    const projects = await prisma.project.findMany({
-      where: whereClause,
-      orderBy: { createdAt: 'desc' },
-      include: { communityAmenities: true, propertyAmenities: true, nearbyPlaces: true }
-    });
-    const response_data = projects.map(p => {
+    const whereClause = includeArchived ? '' : 'WHERE "isArchived" = false';
+    const projects = await query(`SELECT * FROM "Project" ${whereClause} ORDER BY "createdAt" DESC`);
+    const withRelations = await attachRelations(projects);
+    const response_data = withRelations.map((p) => {
       const parsed = (() => { try { return JSON.parse(p.bannerImages || '[]'); } catch { return []; } })();
       const coverImage = parsed.find((b: any) => b.isCover) || parsed[0];
       return { ...p, coverImageUrl: coverImage?.url || null };
@@ -58,14 +71,12 @@ router.get('/', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   try {
-    const project = await prisma.project.findUnique({
-      where: { id: parseInt(req.params.id) },
-      include: { communityAmenities: true, propertyAmenities: true, nearbyPlaces: true }
-    });
+    const project = await queryOne<any>(`SELECT * FROM "Project" WHERE id = $1`, [parseInt(req.params.id)]);
     if (!project) return res.status(404).json({ status_code: 404, status_message: "Project not found" });
-    const parsed = (() => { try { return JSON.parse(project.bannerImages || '[]'); } catch { return []; } })();
+    const [withRelations] = await attachRelations([project]);
+    const parsed = (() => { try { return JSON.parse(withRelations.bannerImages || '[]'); } catch { return []; } })();
     const coverImage = parsed.find((b: any) => b.isCover) || parsed[0];
-    res.status(200).json({ status_code: 200, status_message: "Success", response_data: { ...project, coverImageUrl: coverImage?.url || null } });
+    res.status(200).json({ status_code: 200, status_message: "Success", response_data: { ...withRelations, coverImageUrl: coverImage?.url || null } });
   } catch (error) {
     res.status(500).json({ status_code: 500, status_message: "Internal Server Error" });
   }
@@ -127,32 +138,47 @@ router.post('/', upload.any(), async (req: any, res) => {
       });
     }
 
-    const newProject = await prisma.project.create({
-      data: {
-        projectName,
-        description: description || '',
-        location,
-        bedrooms: parseInt(bedrooms) || 0,
-        bathrooms: bathrooms ? parseInt(bathrooms) : null,
-        price: price || '',
-        furnishing: furnishing || 'Unfurnished',
-        area: area || '',
-        locationIframe: locationIframe || '',
-        projectStatus: projectStatus || 'ONGOING',
-        isActive: req.body.isDraft === 'true' ? false : true,
-        isDraft: req.body.isDraft === 'true',
-        bannerImages: JSON.stringify(bannerImages),
-        project_brochure: brochureUrl,
-        createdBy: adminId,
-        updatedBy: adminId,
-        communityAmenities: { create: communityAmenitiesData },
-        propertyAmenities: { create: propertyAmenitiesData },
-        nearbyPlaces: { create: nearbyPlacesData }
-      },
-      include: { communityAmenities: true, propertyAmenities: true, nearbyPlaces: true }
+    const newProject = await withTransaction(async (client) => {
+      const { rows: [project] } = await client.query(
+        `INSERT INTO "Project"
+           ("projectName", description, location, bedrooms, bathrooms, price, furnishing, area,
+            "locationIframe", "projectStatus", "isActive", "isDraft", "bannerImages", project_brochure,
+            "createdBy", "updatedBy", "updatedAt")
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16, now())
+         RETURNING *`,
+        [
+          projectName, description || '', location, parseInt(bedrooms) || 0,
+          bathrooms ? parseInt(bathrooms) : null, price || '', furnishing || 'Unfurnished', area || '',
+          locationIframe || '', projectStatus || 'ONGOING',
+          req.body.isDraft === 'true' ? false : true, req.body.isDraft === 'true',
+          JSON.stringify(bannerImages), brochureUrl, adminId, adminId,
+        ]
+      );
+
+      for (const am of communityAmenitiesData) {
+        await client.query(
+          `INSERT INTO "CommunityAmenity" ("projectId", name, "imageUrl") VALUES ($1, $2, $3)`,
+          [project.id, am.name, am.imageUrl]
+        );
+      }
+      for (const am of propertyAmenitiesData) {
+        await client.query(
+          `INSERT INTO "PropertyAmenity" ("projectId", name, "iconUrl") VALUES ($1, $2, $3)`,
+          [project.id, am.name, am.iconUrl]
+        );
+      }
+      for (const np of nearbyPlacesData) {
+        await client.query(
+          `INSERT INTO "NearbyPlace" ("projectId", category, "distanceKm", "iconUrl") VALUES ($1, $2, $3, $4)`,
+          [project.id, np.category, np.distanceKm, np.iconUrl]
+        );
+      }
+
+      return project;
     });
 
-    res.status(200).json({ status_code: 200, status_message: "Success", response_data: newProject });
+    const [withRelations] = await attachRelations([newProject]);
+    res.status(200).json({ status_code: 200, status_message: "Success", response_data: withRelations });
   } catch (error) {
     console.error("Create project error:", error);
     res.status(500).json({ status_code: 500, status_message: "Internal Server Error" });
@@ -172,11 +198,9 @@ router.put('/:id', upload.any(), async (req: any, res) => {
     const baseUrl = `${req.protocol}://${req.get('host')}/uploads/`;
     const serverBaseUrl = `${req.protocol}://${req.get('host')}`;
 
-    const existingProject = await prisma.project.findUnique({
-      where: { id: parseInt(id) },
-      include: { communityAmenities: true, propertyAmenities: true, nearbyPlaces: true }
-    });
+    const existingProject = await queryOne<any>(`SELECT * FROM "Project" WHERE id = $1`, [parseInt(id)]);
     if (!existingProject) return res.status(404).json({ status_code: 404, status_message: "Project not found" });
+    const existingCommunityAmenities = await query<any>(`SELECT * FROM "CommunityAmenity" WHERE "projectId" = $1`, [parseInt(id)]);
 
     // 1. Banner Images
     const bannerImagesRaw = req.body.bannerImages ? JSON.parse(req.body.bannerImages) : [];
@@ -197,7 +221,7 @@ router.put('/:id', upload.any(), async (req: any, res) => {
     const baseCommunity = req.body.communityAmenities ? JSON.parse(req.body.communityAmenities) : [];
     const communityAmenitiesData = baseCommunity.map((am: any, idx: number) => {
       const matchedImg = files.find((f: any) => f.fieldname === `communityImage_${idx}`);
-      const existing = existingProject.communityAmenities.find((xa: any) => xa.name === am.name);
+      const existing = existingCommunityAmenities.find((xa: any) => xa.name === am.name);
       return {
         name: am.name,
         imageUrl: matchedImg ? baseUrl + matchedImg.filename : (existing ? existing.imageUrl : null)
@@ -226,36 +250,50 @@ router.put('/:id', upload.any(), async (req: any, res) => {
       });
     }
 
-    const updatedProject = await prisma.$transaction(async (tx) => {
-      await tx.communityAmenity.deleteMany({ where: { projectId: parseInt(id) } });
-      await tx.propertyAmenity.deleteMany({ where: { projectId: parseInt(id) } });
-      await tx.nearbyPlace.deleteMany({ where: { projectId: parseInt(id) } });
+    const updatedProject = await withTransaction(async (client) => {
+      await client.query(`DELETE FROM "CommunityAmenity" WHERE "projectId" = $1`, [parseInt(id)]);
+      await client.query(`DELETE FROM "PropertyAmenity" WHERE "projectId" = $1`, [parseInt(id)]);
+      await client.query(`DELETE FROM "NearbyPlace" WHERE "projectId" = $1`, [parseInt(id)]);
 
-      return tx.project.update({
-        where: { id: parseInt(id) },
-        data: {
-          projectName,
-          description: description || '',
-          location,
-          bedrooms: parseInt(bedrooms) || 0,
-          bathrooms: bathrooms ? parseInt(bathrooms) : null,
-          price: price || '',
-          furnishing: furnishing || 'Unfurnished',
-          area: area || '',
-          locationIframe: locationIframe || '',
-          projectStatus: projectStatus || 'ONGOING',
-          bannerImages: JSON.stringify(bannerImages),
-          project_brochure: brochureUrl,
-          updatedBy: adminId,
-          communityAmenities: { create: communityAmenitiesData },
-          propertyAmenities: { create: propertyAmenitiesData },
-          nearbyPlaces: { create: nearbyPlacesData }
-        },
-        include: { communityAmenities: true, propertyAmenities: true, nearbyPlaces: true }
-      });
+      const { rows: [project] } = await client.query(
+        `UPDATE "Project" SET
+           "projectName" = $1, description = $2, location = $3, bedrooms = $4, bathrooms = $5,
+           price = $6, furnishing = $7, area = $8, "locationIframe" = $9, "projectStatus" = $10,
+           "bannerImages" = $11, project_brochure = $12, "updatedBy" = $13, "updatedAt" = now()
+         WHERE id = $14
+         RETURNING *`,
+        [
+          projectName, description || '', location, parseInt(bedrooms) || 0,
+          bathrooms ? parseInt(bathrooms) : null, price || '', furnishing || 'Unfurnished', area || '',
+          locationIframe || '', projectStatus || 'ONGOING', JSON.stringify(bannerImages), brochureUrl,
+          adminId, parseInt(id),
+        ]
+      );
+
+      for (const am of communityAmenitiesData) {
+        await client.query(
+          `INSERT INTO "CommunityAmenity" ("projectId", name, "imageUrl") VALUES ($1, $2, $3)`,
+          [project.id, am.name, am.imageUrl]
+        );
+      }
+      for (const am of propertyAmenitiesData) {
+        await client.query(
+          `INSERT INTO "PropertyAmenity" ("projectId", name, "iconUrl") VALUES ($1, $2, $3)`,
+          [project.id, am.name, am.iconUrl]
+        );
+      }
+      for (const np of nearbyPlacesData) {
+        await client.query(
+          `INSERT INTO "NearbyPlace" ("projectId", category, "distanceKm", "iconUrl") VALUES ($1, $2, $3, $4)`,
+          [project.id, np.category, np.distanceKm, np.iconUrl]
+        );
+      }
+
+      return project;
     });
 
-    res.status(200).json({ status_code: 200, status_message: "Update successful", response_data: updatedProject });
+    const [withRelations] = await attachRelations([updatedProject]);
+    res.status(200).json({ status_code: 200, status_message: "Update successful", response_data: withRelations });
   } catch (error) {
     console.error("Update project error:", error);
     res.status(500).json({ status_code: 500, status_message: "Internal Server Error" });
@@ -268,22 +306,29 @@ router.patch('/:id', async (req: any, res) => {
     const { isActive, isArchived, isDraft } = req.body;
     const adminId = req.user.id;
 
-    const dataObj: any = { updatedBy: adminId };
-    if (isActive !== undefined) dataObj.isActive = isActive;
+    const sets: string[] = [`"updatedBy" = $1`, `"updatedAt" = now()`];
+    const params: unknown[] = [adminId];
+    const set = (col: string, val: unknown) => { params.push(val); sets.push(`"${col}" = $${params.length}`); };
+
+    if (isActive !== undefined) set('isActive', isActive);
     if (isArchived !== undefined) {
-      dataObj.isArchived = isArchived;
-      if (isArchived === true) dataObj.isActive = false;
-      if (isArchived === false) dataObj.isActive = true;
+      set('isArchived', isArchived);
+      if (isArchived === true) set('isActive', false);
+      if (isArchived === false) set('isActive', true);
     }
     if (isDraft !== undefined) {
-      dataObj.isDraft = isDraft;
+      set('isDraft', isDraft);
       if (isDraft === false) {
-        dataObj.isActive = true;
-        dataObj.isArchived = false;
+        set('isActive', true);
+        set('isArchived', false);
       }
     }
 
-    const project = await prisma.project.update({ where: { id: parseInt(id) }, data: dataObj });
+    params.push(parseInt(id));
+    const project = await queryOne(
+      `UPDATE "Project" SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`,
+      params
+    );
     res.status(200).json({ status_code: 200, status_message: "Toggled successfully", response_data: project });
   } catch (error) {
     res.status(500).json({ status_code: 500, status_message: "Internal Server Error" });
@@ -294,7 +339,10 @@ router.delete('/:id', async (req: any, res) => {
   try {
     const { id } = req.params;
     const adminId = req.user.id;
-    await prisma.project.update({ where: { id: parseInt(id) }, data: { isArchived: true, isActive: false, updatedBy: adminId } });
+    await query(
+      `UPDATE "Project" SET "isArchived" = true, "isActive" = false, "updatedBy" = $1, "updatedAt" = now() WHERE id = $2`,
+      [adminId, parseInt(id)]
+    );
     res.status(200).json({ status_code: 200, status_message: "Archived successfully" });
   } catch (error) {
     res.status(500).json({ status_code: 500, status_message: "Internal Server Error" });

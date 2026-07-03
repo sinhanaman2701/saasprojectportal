@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { timingSafeEqual } from 'crypto';
-import prisma from '../lib/prisma';
+import { query } from '../lib/db';
 import { LEGACY_ACCESS_TOKEN } from '../lib/env';
 
 const router = Router();
@@ -44,25 +44,33 @@ router.post('/list', requireLegacyAccessToken, async (req, res) => {
 
     const skip = (page - 1) * limit;
 
-    const whereClause: any = req.body.includeArchived ? { isDraft: false } : { isActive: true, isArchived: false, isDraft: false };
+    const whereClause = req.body.includeArchived
+      ? `WHERE "isDraft" = false`
+      : `WHERE "isActive" = true AND "isArchived" = false AND "isDraft" = false`;
 
-    const [totalItems, projects] = await prisma.$transaction([
-      prisma.project.count({ where: whereClause }),
-      prisma.project.findMany({
-        where: whereClause,
-        skip,
-        take: limit,
-        include: { 
-          communityAmenities: true,
-          propertyAmenities: true,
-          nearbyPlaces: true
-        },
-        orderBy: { createdAt: 'desc' }
-      })
-    ]);
+    const [{ count: totalItemsRaw }] = await query<{ count: string }>(`SELECT COUNT(*) AS count FROM "Project" ${whereClause}`);
+    const totalItems = parseInt(totalItemsRaw, 10);
+    const projectRows = await query<any>(
+      `SELECT * FROM "Project" ${whereClause} ORDER BY "createdAt" DESC LIMIT $1 OFFSET $2`,
+      [limit, skip]
+    );
+    const projectIds = projectRows.map((p) => p.id);
+    const [community, property, nearby]: [any[], any[], any[]] = projectIds.length
+      ? await Promise.all([
+          query<any>(`SELECT * FROM "CommunityAmenity" WHERE "projectId" = ANY($1::int[])`, [projectIds]),
+          query<any>(`SELECT * FROM "PropertyAmenity" WHERE "projectId" = ANY($1::int[])`, [projectIds]),
+          query<any>(`SELECT * FROM "NearbyPlace" WHERE "projectId" = ANY($1::int[])`, [projectIds]),
+        ])
+      : [[], [], []];
+    const projects = projectRows.map((p) => ({
+      ...p,
+      communityAmenities: community.filter((c: any) => c.projectId === p.id),
+      propertyAmenities: property.filter((c: any) => c.projectId === p.id),
+      nearbyPlaces: nearby.filter((c: any) => c.projectId === p.id),
+    }));
 
     // Format rigorously strictly to API Schema Layout explicitly expanding V4 constraints without mutating old expectations
-    const response_data = projects.map(p => {
+    const response_data = projects.map((p: any) => {
       const parsedBannerImages = (() => { try { return JSON.parse(p.bannerImages || '[]'); } catch { return []; } })();
       const coverImage = parsedBannerImages.find((b: any) => b.isCover) || parsedBannerImages[0];
       return {
@@ -82,17 +90,17 @@ router.post('/list', requireLegacyAccessToken, async (req, res) => {
           area: p.area
         },
         project_brochure: p.project_brochure,
-        communityAmenities: p.communityAmenities.map(c => ({
+        communityAmenities: p.communityAmenities.map((c: any) => ({
           id: c.id,
           name: c.name,
           imageUrl: c.imageUrl
         })),
-        propertyAmenities: p.propertyAmenities.map(pa => ({
+        propertyAmenities: p.propertyAmenities.map((pa: any) => ({
           id: pa.id,
           name: pa.name,
           iconUrl: pa.iconUrl
         })),
-        nearbyPlaces: p.nearbyPlaces.map(n => ({
+        nearbyPlaces: p.nearbyPlaces.map((n: any) => ({
           id: n.id,
           category: n.category,
           distanceKm: n.distanceKm,
@@ -128,10 +136,7 @@ router.post('/:id/click', requireLegacyAccessToken, async (req, res) => {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
-    await prisma.project.update({
-      where: { id: parseInt(id) },
-      data: { clickCount: { increment: 1 } }
-    });
+    await query(`UPDATE "Project" SET "clickCount" = "clickCount" + 1 WHERE id = $1`, [parseInt(id)]);
 
     res.status(200).json({ status_code: 200, status_message: "Metrics tracked successfully" });
   } catch(e) {

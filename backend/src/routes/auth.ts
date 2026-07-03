@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import prisma from '../lib/prisma';
+import { queryOne } from '../lib/db';
 import { JWT_SECRET, JWT_EXPIRY, type JwtExpiry } from '../lib/env';
 
 const router = Router();
@@ -10,7 +10,10 @@ router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const admin = await prisma.admin.findUnique({ where: { email } });
+    const admin = await queryOne<{ id: number; email: string; password_hash: string }>(
+      `SELECT id, email, password_hash FROM "Admin" WHERE email = $1`,
+      [email]
+    );
     if (!admin) {
       return res.status(401).json({ status_code: 401, status_message: "Unauthorized: Invalid or expired access token" });
     }

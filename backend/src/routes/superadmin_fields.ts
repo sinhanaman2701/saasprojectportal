@@ -1,9 +1,9 @@
 import { Router } from 'express';
-import { FieldType, Prisma } from '@prisma/client';
+import { FieldType } from '../types/enums';
 import superadminAuth from '../middleware/superadminAuth';
 import tenantMiddleware from '../middleware/tenant';
 import { invalidateFieldCache } from './tenant_projects';
-import prisma from '../lib/prisma';
+import { query, queryOne, withTransaction } from '../lib/db';
 
 const router = Router();
 
@@ -19,10 +19,10 @@ const VALID_FIELD_TYPES: FieldType[] = [
 // GET /admin/portals/:slug/fields — list tenant fields
 router.get('/', async (req, res) => {
   try {
-    const fields = await prisma.tenantField.findMany({
-      where: { tenantId: req.tenant!.id },
-      orderBy: { order: 'asc' },
-    });
+    const fields = await query(
+      `SELECT * FROM "TenantField" WHERE "tenantId" = $1 ORDER BY "order" ASC`,
+      [req.tenant!.id]
+    );
 
     res.json({ status_code: 200, status_message: 'Success', response_data: fields });
   } catch (error) {
@@ -57,8 +57,6 @@ router.post('/', async (req, res) => {
     }
 
     // Validate dimensions for IMAGE fields.
-    // Use != null (loose) so that null values are treated as "not provided" and
-    // skip the check — only validate when the caller actually sends real numbers.
     if (type === 'IMAGE' || type === 'IMAGE_MULTI') {
       if (imageWidth != null || imageHeight != null) {
         if (!imageWidth || !imageHeight) {
@@ -81,32 +79,32 @@ router.post('/', async (req, res) => {
     // Auto-generate key from label if not provided
     const finalKey = key || label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
 
-    const existing = await prisma.tenantField.findUnique({
-      where: { tenantId_key: { tenantId: req.tenant!.id, key: finalKey } },
-    });
+    const existing = await queryOne(
+      `SELECT id FROM "TenantField" WHERE "tenantId" = $1 AND key = $2`,
+      [req.tenant!.id, finalKey]
+    );
     if (existing) {
       return res.status(409).json({ status_code: 409, status_message: `Field with key '${finalKey}' already exists` });
     }
 
-    const field = await prisma.tenantField.create({
-      data: {
-        tenantId: req.tenant!.id,
-        key: finalKey,
-        label,
-        type,
-        section,
-        order: order ?? 0,
-        required: required ?? false,
-        placeholder: placeholder ?? null,
-        options: options ?? null,
-        validation: validation ?? null,
-        showInList: showInList ?? true,
-        ...(maxLength && { maxLength: parseInt(maxLength, 10) }),
-        ...(imageWidth && { imageWidth: parseInt(imageWidth, 10) }),
-        ...(imageHeight && { imageHeight: parseInt(imageHeight, 10) }),
-        ...(allowCaption !== undefined && { allowCaption: !!allowCaption }),
-      },
-    });
+    const field = await queryOne(
+      `INSERT INTO "TenantField"
+         (key, label, type, section, "order", required, placeholder, options, validation, "showInList", "maxLength", "imageWidth", "imageHeight", "allowCaption", "tenantId")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+       RETURNING *`,
+      [
+        finalKey, label, type, section, order ?? 0, required ?? false,
+        placeholder ?? null,
+        options ? JSON.stringify(options) : null,
+        validation ? JSON.stringify(validation) : null,
+        showInList ?? true,
+        maxLength ? parseInt(maxLength, 10) : null,
+        imageWidth ? parseInt(imageWidth, 10) : null,
+        imageHeight ? parseInt(imageHeight, 10) : null,
+        allowCaption !== undefined ? !!allowCaption : false,
+        req.tenant!.id,
+      ]
+    );
 
     // Invalidate field cache
     invalidateFieldCache(req.tenant!.id);
@@ -123,9 +121,10 @@ router.put('/:fieldId', async (req, res) => {
     const { fieldId } = req.params;
     const { label, type, section, order, required, placeholder, options, validation, showInList, key, maxLength, imageWidth, imageHeight, allowCaption } = req.body;
 
-    const field = await prisma.tenantField.findFirst({
-      where: { id: parseInt(fieldId), tenantId: req.tenant!.id },
-    });
+    const field = await queryOne<{ id: number; key: string }>(
+      `SELECT id, key FROM "TenantField" WHERE id = $1 AND "tenantId" = $2`,
+      [parseInt(fieldId), req.tenant!.id]
+    );
 
     if (!field) {
       return res.status(404).json({ status_code: 404, status_message: 'Field not found' });
@@ -149,8 +148,6 @@ router.put('/:fieldId', async (req, res) => {
     }
 
     // Validate dimensions for IMAGE fields.
-    // Use != null (loose) so that null values are treated as "not provided" and
-    // skip the check — only validate when the caller actually sends real numbers.
     if (type === 'IMAGE' || type === 'IMAGE_MULTI') {
       if (imageWidth != null || imageHeight != null) {
         if (!imageWidth || !imageHeight) {
@@ -173,55 +170,59 @@ router.put('/:fieldId', async (req, res) => {
     // Check for key collision if key is being changed
     const finalKey = key || field.key;
     if (finalKey !== field.key) {
-      const collision = await prisma.tenantField.findUnique({
-        where: { tenantId_key: { tenantId: req.tenant!.id, key: finalKey } },
-      });
+      const collision = await queryOne<{ id: number }>(
+        `SELECT id FROM "TenantField" WHERE "tenantId" = $1 AND key = $2`,
+        [req.tenant!.id, finalKey]
+      );
       if (collision && collision.id !== field.id) {
         return res.status(409).json({ status_code: 409, status_message: `Field with key '${finalKey}' already exists` });
       }
     }
 
-    const updated = await prisma.tenantField.update({
-      where: { id: field.id },
-      data: {
-        ...(label !== undefined && { label }),
-        ...(type !== undefined && { type }),
-        ...(section !== undefined && { section }),
-        ...(order !== undefined && { order }),
-        ...(key !== undefined && { key: finalKey }),
-        ...(required !== undefined && { required }),
-        ...(placeholder !== undefined && { placeholder }),
-        ...(options !== undefined && { options }),
-        ...(validation !== undefined && { validation }),
-        ...(showInList !== undefined && { showInList }),
-        ...(maxLength !== undefined && { maxLength: maxLength === '' ? null : parseInt(maxLength, 10) }),
-        ...(imageWidth !== undefined && { imageWidth: imageWidth === '' ? null : parseInt(imageWidth, 10) }),
-        ...(imageHeight !== undefined && { imageHeight: imageHeight === '' ? null : parseInt(imageHeight, 10) }),
-        ...(allowCaption !== undefined && { allowCaption: !!allowCaption }),
-      },
-    });
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    const set = (col: string, val: unknown) => { params.push(val); sets.push(`"${col}" = $${params.length}`); };
+
+    if (label !== undefined) set('label', label);
+    if (type !== undefined) set('type', type);
+    if (section !== undefined) set('section', section);
+    if (order !== undefined) set('order', order);
+    if (key !== undefined) set('key', finalKey);
+    if (required !== undefined) set('required', required);
+    if (placeholder !== undefined) set('placeholder', placeholder);
+    if (options !== undefined) set('options', options !== null ? JSON.stringify(options) : null);
+    if (validation !== undefined) set('validation', validation !== null ? JSON.stringify(validation) : null);
+    if (showInList !== undefined) set('showInList', showInList);
+    if (maxLength !== undefined) set('maxLength', maxLength === '' ? null : parseInt(maxLength, 10));
+    if (imageWidth !== undefined) set('imageWidth', imageWidth === '' ? null : parseInt(imageWidth, 10));
+    if (imageHeight !== undefined) set('imageHeight', imageHeight === '' ? null : parseInt(imageHeight, 10));
+    if (allowCaption !== undefined) set('allowCaption', !!allowCaption);
+
+    params.push(field.id);
+    const updated = await queryOne(
+      `UPDATE "TenantField" SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`,
+      params
+    );
 
     // Migrate project data if key changed
     if (key !== undefined && finalKey !== field.key) {
-      const projects = await prisma.tenantProject.findMany({
-        where: { tenantId: req.tenant!.id },
-        select: { id: true, data: true },
-      });
+      const projects = await query<{ id: number; data: Record<string, unknown> }>(
+        `SELECT id, data FROM "TenantProject" WHERE "tenantId" = $1`,
+        [req.tenant!.id]
+      );
 
       for (const project of projects) {
-        const projectData = typeof project.data === 'string'
-          ? JSON.parse(project.data)
-          : (project.data as Record<string, unknown> || {});
+        const projectData = project.data || {};
 
         if (field.key in projectData) {
           const value = projectData[field.key];
           delete projectData[field.key];
           projectData[finalKey] = value;
 
-          await prisma.tenantProject.update({
-            where: { id: project.id },
-            data: { data: projectData },
-          });
+          await query(
+            `UPDATE "TenantProject" SET data = $1, "updatedAt" = now() WHERE id = $2`,
+            [JSON.stringify(projectData), project.id]
+          );
         }
       }
     }
@@ -240,15 +241,16 @@ router.delete('/:fieldId', async (req, res) => {
   try {
     const { fieldId } = req.params;
 
-    const field = await prisma.tenantField.findFirst({
-      where: { id: parseInt(fieldId), tenantId: req.tenant!.id },
-    });
+    const field = await queryOne<{ id: number }>(
+      `SELECT id FROM "TenantField" WHERE id = $1 AND "tenantId" = $2`,
+      [parseInt(fieldId), req.tenant!.id]
+    );
 
     if (!field) {
       return res.status(404).json({ status_code: 404, status_message: 'Field not found' });
     }
 
-    await prisma.tenantField.delete({ where: { id: field.id } });
+    await query(`DELETE FROM "TenantField" WHERE id = $1`, [field.id]);
 
     // Invalidate field cache
     invalidateFieldCache(req.tenant!.id);
@@ -272,63 +274,48 @@ router.post('/bulk', async (req, res) => {
       return res.status(404).json({ status_code: 404, status_message: 'Tenant not found' });
     }
 
-    // Create all fields in a transaction
-    const created = await prisma.$transaction(
-      fields.map((f: {
-        key: string;
-        label: string;
-        type: string;
-        section: string;
-        order: number;
-        required: boolean;
-        showInList: boolean;
-        placeholder?: string | null;
-        maxLength?: number | null;
-        imageWidth?: number | null;
-        imageHeight?: number | null;
-        allowCaption?: boolean;
-        options?: Array<{ label: string; value: string }> | null;
-      }) =>
-        prisma.tenantField.upsert({
-          where: {
-            tenantId_key: {
-              tenantId: req.tenant!.id,
-              key: f.key,
-            },
-          },
-          create: {
-            tenantId: req.tenant!.id,
-            key: f.key,
-            label: f.label,
-            type: f.type as FieldType,
-            section: f.section,
-            order: f.order,
-            required: f.required,
-            showInList: f.showInList,
-            placeholder: f.placeholder,
-            maxLength: f.maxLength,
-            ...(f.imageWidth && { imageWidth: f.imageWidth }),
-            ...(f.imageHeight && { imageHeight: f.imageHeight }),
-            ...(f.allowCaption && { allowCaption: f.allowCaption }),
-            options: f.options ? f.options : Prisma.JsonNull,
-          },
-          update: {
-            label: f.label,
-            type: f.type as FieldType,
-            section: f.section,
-            order: f.order,
-            required: f.required,
-            showInList: f.showInList,
-            placeholder: f.placeholder,
-            maxLength: f.maxLength,
-            ...(f.imageWidth !== undefined && { imageWidth: f.imageWidth }),
-            ...(f.imageHeight !== undefined && { imageHeight: f.imageHeight }),
-            ...(f.allowCaption !== undefined && { allowCaption: f.allowCaption }),
-            options: f.options !== undefined && f.options !== null ? f.options : Prisma.JsonNull,
-          },
-        })
-      )
-    );
+    // Upsert all fields in a transaction
+    const created = await withTransaction(async (client) => {
+      const results = [];
+      for (const f of fields as Array<{
+        key: string; label: string; type: string; section: string; order: number;
+        required: boolean; showInList: boolean; placeholder?: string | null;
+        maxLength?: number | null; imageWidth?: number | null; imageHeight?: number | null;
+        allowCaption?: boolean; options?: Array<{ label: string; value: string }> | null;
+      }>) {
+        const { rows: [row] } = await client.query(
+          `INSERT INTO "TenantField"
+             (key, label, type, section, "order", required, "showInList", placeholder, "maxLength", "imageWidth", "imageHeight", "allowCaption", options, "tenantId")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+           ON CONFLICT ("tenantId", key) DO UPDATE SET
+             label = EXCLUDED.label,
+             type = EXCLUDED.type,
+             section = EXCLUDED.section,
+             "order" = EXCLUDED."order",
+             required = EXCLUDED.required,
+             "showInList" = EXCLUDED."showInList",
+             placeholder = EXCLUDED.placeholder,
+             "maxLength" = EXCLUDED."maxLength",
+             "imageWidth" = COALESCE(EXCLUDED."imageWidth", "TenantField"."imageWidth"),
+             "imageHeight" = COALESCE(EXCLUDED."imageHeight", "TenantField"."imageHeight"),
+             "allowCaption" = COALESCE(EXCLUDED."allowCaption", "TenantField"."allowCaption"),
+             options = EXCLUDED.options
+           RETURNING *`,
+          [
+            f.key, f.label, f.type, f.section, f.order, f.required, f.showInList,
+            f.placeholder ?? null,
+            f.maxLength ?? null,
+            f.imageWidth ?? null,
+            f.imageHeight ?? null,
+            f.allowCaption ?? false,
+            f.options !== undefined && f.options !== null ? JSON.stringify(f.options) : null,
+            req.tenant!.id,
+          ]
+        );
+        results.push(row);
+      }
+      return results;
+    });
 
     // Invalidate field cache
     invalidateFieldCache(req.tenant!.id);
@@ -350,11 +337,11 @@ router.put('/reorder', async (req, res) => {
     }
 
     await Promise.all(
-      fields.map((f: { id: number; order: number }) =>
-        prisma.tenantField.updateMany({
-          where: { id: f.id, tenantId: req.tenant!.id },
-          data: { order: f.order },
-        })
+      (fields as Array<{ id: number; order: number }>).map((f) =>
+        query(
+          `UPDATE "TenantField" SET "order" = $1 WHERE id = $2 AND "tenantId" = $3`,
+          [f.order, f.id, req.tenant!.id]
+        )
       )
     );
 
@@ -369,29 +356,20 @@ router.put('/reorder', async (req, res) => {
 // GET /admin/portals/:slug/sections — list all sections with field counts
 router.get('/sections', async (req, res) => {
   try {
-    const sections = await prisma.tenantField.groupBy({
-      by: ['section'],
-      where: { tenantId: req.tenant!.id },
-      _count: { id: true },
-    });
-
-    // Sort sections by the minimum order value of fields in each section
-    const sectionsWithOrder = await Promise.all(
-      sections.map(async (s) => {
-        const minOrder = await prisma.tenantField.findFirst({
-          where: { tenantId: req.tenant!.id, section: s.section },
-          orderBy: { order: 'asc' },
-          select: { order: true },
-        });
-        return {
-          name: s.section,
-          fieldCount: s._count.id,
-          order: minOrder?.order ?? 0,
-        };
-      })
+    const sections = await query<{ section: string; fieldCount: string; order: number }>(
+      `SELECT section, COUNT(id) AS "fieldCount", MIN("order") AS "order"
+       FROM "TenantField"
+       WHERE "tenantId" = $1
+       GROUP BY section
+       ORDER BY MIN("order") ASC`,
+      [req.tenant!.id]
     );
 
-    sectionsWithOrder.sort((a, b) => a.order - b.order);
+    const sectionsWithOrder = sections.map((s) => ({
+      name: s.section,
+      fieldCount: parseInt(s.fieldCount, 10),
+      order: s.order,
+    }));
 
     res.json({
       status_code: 200,
@@ -415,9 +393,10 @@ router.post('/sections', async (req, res) => {
     const trimmedSection = section.trim();
 
     // Check for duplicate section name
-    const existing = await prisma.tenantField.findFirst({
-      where: { tenantId: req.tenant!.id, section: trimmedSection },
-    });
+    const existing = await queryOne(
+      `SELECT id FROM "TenantField" WHERE "tenantId" = $1 AND section = $2`,
+      [req.tenant!.id, trimmedSection]
+    );
 
     if (existing) {
       return res.status(409).json({
@@ -427,11 +406,10 @@ router.post('/sections', async (req, res) => {
     }
 
     // Calculate max order value among all sections to place new section at the bottom
-    const maxOrderResult = await prisma.tenantField.findFirst({
-      where: { tenantId: req.tenant!.id },
-      orderBy: { order: 'desc' },
-      select: { order: true },
-    });
+    const maxOrderResult = await queryOne<{ order: number | null }>(
+      `SELECT "order" FROM "TenantField" WHERE "tenantId" = $1 ORDER BY "order" DESC LIMIT 1`,
+      [req.tenant!.id]
+    );
 
     const newSectionOrder = (maxOrderResult?.order ?? 0) + 100;
 
@@ -463,9 +441,10 @@ router.put('/sections/:sectionName', async (req, res) => {
     const trimmedNewSection = newSection.trim();
 
     // Check if new section name already exists
-    const existing = await prisma.tenantField.findFirst({
-      where: { tenantId: req.tenant!.id, section: trimmedNewSection },
-    });
+    const existing = await queryOne(
+      `SELECT id FROM "TenantField" WHERE "tenantId" = $1 AND section = $2`,
+      [req.tenant!.id, trimmedNewSection]
+    );
 
     if (existing) {
       return res.status(409).json({
@@ -475,10 +454,10 @@ router.put('/sections/:sectionName', async (req, res) => {
     }
 
     // Update all fields in the section
-    await prisma.tenantField.updateMany({
-      where: { tenantId: req.tenant!.id, section: decodedSectionName },
-      data: { section: trimmedNewSection },
-    });
+    await query(
+      `UPDATE "TenantField" SET section = $1 WHERE "tenantId" = $2 AND section = $3`,
+      [trimmedNewSection, req.tenant!.id, decodedSectionName]
+    );
 
     // Invalidate field cache
     invalidateFieldCache(req.tenant!.id);
@@ -500,9 +479,11 @@ router.delete('/sections/:sectionName', async (req, res) => {
     const decodedSectionName = decodeURIComponent(sectionName);
 
     // Count fields in this section
-    const fieldCount = await prisma.tenantField.count({
-      where: { tenantId: req.tenant!.id, section: decodedSectionName },
-    });
+    const [{ count }] = await query<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM "TenantField" WHERE "tenantId" = $1 AND section = $2`,
+      [req.tenant!.id, decodedSectionName]
+    );
+    const fieldCount = parseInt(count, 10);
 
     if (fieldCount === 0) {
       return res.status(404).json({
@@ -512,9 +493,10 @@ router.delete('/sections/:sectionName', async (req, res) => {
     }
 
     // Delete all fields in the section (cascade handles related data)
-    await prisma.tenantField.deleteMany({
-      where: { tenantId: req.tenant!.id, section: decodedSectionName },
-    });
+    await query(
+      `DELETE FROM "TenantField" WHERE "tenantId" = $1 AND section = $2`,
+      [req.tenant!.id, decodedSectionName]
+    );
 
     // Invalidate field cache
     invalidateFieldCache(req.tenant!.id);

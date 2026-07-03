@@ -1,9 +1,8 @@
 import { Router } from 'express';
-import { Prisma } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import superadminAuth from '../middleware/superadminAuth';
 import { DEFAULT_FIELDS } from '../utils/default-fields';
-import prisma from '../lib/prisma';
+import { query, queryOne, withTransaction } from '../lib/db';
 
 const router = Router();
 
@@ -12,21 +11,27 @@ router.use(superadminAuth);
 // GET /admin/portals — list all tenants
 router.get('/', async (req, res) => {
   try {
-    const tenants = await prisma.tenant.findMany({
-      orderBy: { createdAt: 'desc' },
-      include: {
-        _count: { select: { projects: true } },
-      },
-    });
+    const tenants = await query<{
+      id: number; slug: string; name: string; logoUrl: string | null;
+      accessToken: string | null; status: string; createdAt: Date; updatedAt: Date;
+      projectCount: string;
+    }>(`
+      SELECT t.id, t.slug, t.name, t."logoUrl", t."accessToken", t.status, t."createdAt", t."updatedAt",
+             COUNT(p.id) AS "projectCount"
+      FROM "Tenant" t
+      LEFT JOIN "TenantProject" p ON p."tenantId" = t.id
+      GROUP BY t.id
+      ORDER BY t."createdAt" DESC
+    `);
 
     const result = tenants.map((t) => ({
       id: t.id,
       slug: t.slug,
       name: t.name,
       logoUrl: t.logoUrl,
-      accessToken: t.accessToken, // For mobile API access
+      accessToken: t.accessToken,
       status: t.status,
-      projectCount: t._count.projects,
+      projectCount: parseInt(t.projectCount, 10),
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
     }));
@@ -54,38 +59,40 @@ router.post('/', async (req, res) => {
       });
     }
 
-    const existing = await prisma.tenant.findUnique({ where: { slug } });
+    const existing = await queryOne(`SELECT id FROM "Tenant" WHERE slug = $1`, [slug]);
     if (existing) {
       return res.status(409).json({ status_code: 409, status_message: `Tenant with slug '${slug}' already exists` });
     }
 
-    const tenant = await prisma.tenant.create({
-      data: {
-        slug,
-        name,
-        logoUrl: logoUrl || null,
-        accessToken: randomBytes(32).toString('hex'), // 64-char hex token
-        status: 'LIVE', // Set to LIVE immediately upon creation (wizard completes full setup)
-      },
-    });
+    const accessToken = randomBytes(32).toString('hex'); // 64-char hex token
 
-    // Seed default fields for the new tenant
-    await prisma.tenantField.createMany({
-      data: DEFAULT_FIELDS.map((f: any) => ({
-        tenantId: tenant.id,
-        key: f.key,
-        label: f.label,
-        type: f.type,
-        section: f.section,
-        order: f.order,
-        required: f.required,
-        placeholder: f.placeholder ?? null,
-        options: f.options ? f.options : Prisma.JsonNull,
-        validation: Prisma.JsonNull,
-        showInList: f.showInList,
-        ...(f.imageWidth && { imageWidth: f.imageWidth }),
-        ...(f.imageHeight && { imageHeight: f.imageHeight }),
-      })),
+    const tenant = await withTransaction(async (client) => {
+      const { rows: [tenant] } = await client.query(
+        `INSERT INTO "Tenant" (slug, name, "logoUrl", "accessToken", status, "updatedAt")
+         VALUES ($1, $2, $3, $4, 'LIVE', now())
+         RETURNING id, slug, name, "logoUrl", "accessToken", status, "createdAt", "updatedAt"`,
+        [slug, name, logoUrl || null, accessToken]
+      );
+
+      // Seed default fields for the new tenant
+      for (const f of DEFAULT_FIELDS as any[]) {
+        await client.query(
+          `INSERT INTO "TenantField"
+             (key, label, type, section, "order", required, placeholder, options, validation, "showInList", "imageWidth", "imageHeight", "tenantId")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, $9, $10, $11, $12)`,
+          [
+            f.key, f.label, f.type, f.section, f.order, f.required,
+            f.placeholder ?? null,
+            f.options ? JSON.stringify(f.options) : null,
+            f.showInList,
+            f.imageWidth ?? null,
+            f.imageHeight ?? null,
+            tenant.id,
+          ]
+        );
+      }
+
+      return tenant;
     });
 
     res.status(201).json({ status_code: 201, status_message: 'Tenant created with default fields', response_data: tenant });
@@ -99,16 +106,19 @@ router.delete('/:slug', async (req, res) => {
   try {
     const { slug } = req.params;
 
-    const tenant = await prisma.tenant.findUnique({ where: { slug } });
+    const tenant = await queryOne<{ id: number }>(`SELECT id FROM "Tenant" WHERE slug = $1`, [slug]);
     if (!tenant) {
       return res.status(404).json({ status_code: 404, status_message: 'Tenant not found' });
     }
 
-    // Delete in order: projects -> fields -> tenant (cascade should handle this, but being explicit)
-    await prisma.tenantProject.deleteMany({ where: { tenantId: tenant.id } });
-    await prisma.tenantField.deleteMany({ where: { tenantId: tenant.id } });
-    await prisma.tenantAdmin.deleteMany({ where: { tenantId: tenant.id } });
-    await prisma.tenant.delete({ where: { id: tenant.id } });
+    // Delete in order: projects -> fields -> admins -> tenant (cascade should
+    // handle this via ON DELETE CASCADE, but being explicit as the original did).
+    await withTransaction(async (client) => {
+      await client.query(`DELETE FROM "TenantProject" WHERE "tenantId" = $1`, [tenant.id]);
+      await client.query(`DELETE FROM "TenantField" WHERE "tenantId" = $1`, [tenant.id]);
+      await client.query(`DELETE FROM "TenantAdmin" WHERE "tenantId" = $1`, [tenant.id]);
+      await client.query(`DELETE FROM "Tenant" WHERE id = $1`, [tenant.id]);
+    });
 
     res.json({ status_code: 200, status_message: 'Tenant deleted successfully' });
   } catch (error) {
@@ -119,11 +129,12 @@ router.delete('/:slug', async (req, res) => {
 // POST /admin/portals/delete-all — delete ALL tenants (development/clean slate)
 router.post('/delete-all', async (req, res) => {
   try {
-    // Delete all projects, fields, and admins first
-    await prisma.tenantProject.deleteMany({});
-    await prisma.tenantField.deleteMany({});
-    await prisma.tenantAdmin.deleteMany({});
-    await prisma.tenant.deleteMany({});
+    await withTransaction(async (client) => {
+      await client.query(`DELETE FROM "TenantProject"`);
+      await client.query(`DELETE FROM "TenantField"`);
+      await client.query(`DELETE FROM "TenantAdmin"`);
+      await client.query(`DELETE FROM "Tenant"`);
+    });
 
     res.json({ status_code: 200, status_message: 'All tenants deleted successfully' });
   } catch (error) {
@@ -135,16 +146,14 @@ router.post('/delete-all', async (req, res) => {
 router.post('/:slug/fields/seed', async (req, res) => {
   try {
     const { slug } = req.params;
-    const tenant = await prisma.tenant.findUnique({ where: { slug } });
+    const tenant = await queryOne<{ id: number }>(`SELECT id FROM "Tenant" WHERE slug = $1`, [slug]);
 
     if (!tenant) {
       return res.status(404).json({ status_code: 404, status_message: 'Tenant not found' });
     }
 
     // Check if fields already exist - only seed if no fields exist
-    const existingFields = await prisma.tenantField.findMany({
-      where: { tenantId: tenant.id },
-    });
+    const existingFields = await query(`SELECT id FROM "TenantField" WHERE "tenantId" = $1`, [tenant.id]);
 
     if (existingFields.length > 0) {
       return res.status(409).json({
@@ -154,22 +163,23 @@ router.post('/:slug/fields/seed', async (req, res) => {
     }
 
     // Seed default fields
-    await prisma.tenantField.createMany({
-      data: DEFAULT_FIELDS.map((f: any) => ({
-        tenantId: tenant.id,
-        key: f.key,
-        label: f.label,
-        type: f.type,
-        section: f.section,
-        order: f.order,
-        required: f.required,
-        placeholder: f.placeholder ?? null,
-        options: f.options ? f.options : Prisma.JsonNull,
-        validation: Prisma.JsonNull,
-        showInList: f.showInList,
-        ...(f.imageWidth && { imageWidth: f.imageWidth }),
-        ...(f.imageHeight && { imageHeight: f.imageHeight }),
-      })),
+    await withTransaction(async (client) => {
+      for (const f of DEFAULT_FIELDS as any[]) {
+        await client.query(
+          `INSERT INTO "TenantField"
+             (key, label, type, section, "order", required, placeholder, options, validation, "showInList", "imageWidth", "imageHeight", "tenantId")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, $9, $10, $11, $12)`,
+          [
+            f.key, f.label, f.type, f.section, f.order, f.required,
+            f.placeholder ?? null,
+            f.options ? JSON.stringify(f.options) : null,
+            f.showInList,
+            f.imageWidth ?? null,
+            f.imageHeight ?? null,
+            tenant.id,
+          ]
+        );
+      }
     });
 
     res.json({ status_code: 200, status_message: 'Default fields seeded successfully' });

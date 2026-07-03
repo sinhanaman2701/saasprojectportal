@@ -9,7 +9,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import prisma from '../lib/prisma';
+import { pool, query } from '../lib/db';
 import { getIconUrl } from '../utils/icon-map';
 
 const BASE_URL = process.env.POSTMAN_BASE_URL || 'http://localhost:3002';
@@ -18,9 +18,9 @@ async function main() {
   console.log(`\n🔄 Backfilling icons using base URL: ${BASE_URL}\n`);
 
   // ── 1. Property Amenities ──────────────────────────────────────────────────
-  const nullAmenities = await prisma.propertyAmenity.findMany({
-    where: { iconUrl: null },
-  });
+  const nullAmenities = await query<{ id: number; name: string }>(
+    `SELECT id, name FROM "PropertyAmenity" WHERE "iconUrl" IS NULL`
+  );
 
   console.log(`Found ${nullAmenities.length} PropertyAmenity rows with no icon.`);
 
@@ -28,10 +28,7 @@ async function main() {
   for (const amenity of nullAmenities) {
     const iconUrl = getIconUrl(BASE_URL, amenity.name);
     if (iconUrl) {
-      await prisma.propertyAmenity.update({
-        where: { id: amenity.id },
-        data: { iconUrl },
-      });
+      await query(`UPDATE "PropertyAmenity" SET "iconUrl" = $1 WHERE id = $2`, [iconUrl, amenity.id]);
       console.log(`  ✅ PropertyAmenity [${amenity.id}] "${amenity.name}" → ${iconUrl}`);
       amenityUpdated++;
     } else {
@@ -40,9 +37,9 @@ async function main() {
   }
 
   // ── 2. Nearby Places ──────────────────────────────────────────────────────
-  const nullPlaces = await prisma.nearbyPlace.findMany({
-    where: { iconUrl: null },
-  });
+  const nullPlaces = await query<{ id: number; category: string }>(
+    `SELECT id, category FROM "NearbyPlace" WHERE "iconUrl" IS NULL`
+  );
 
   console.log(`\nFound ${nullPlaces.length} NearbyPlace rows with no icon.`);
 
@@ -50,10 +47,7 @@ async function main() {
   for (const place of nullPlaces) {
     const iconUrl = getIconUrl(BASE_URL, place.category);
     if (iconUrl) {
-      await prisma.nearbyPlace.update({
-        where: { id: place.id },
-        data: { iconUrl },
-      });
+      await query(`UPDATE "NearbyPlace" SET "iconUrl" = $1 WHERE id = $2`, [iconUrl, place.id]);
       console.log(`  ✅ NearbyPlace [${place.id}] "${place.category}" → ${iconUrl}`);
       placesUpdated++;
     } else {
@@ -69,4 +63,4 @@ main()
     console.error('❌ Backfill failed:', e);
     process.exit(1);
   })
-  .finally(() => prisma.$disconnect());
+  .finally(() => pool.end());
