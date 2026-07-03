@@ -20,6 +20,21 @@ export async function queryOne<T extends object = any>(text: string, params: unk
 }
 
 /**
+ * Builds a `SET "col1" = $1, "col2" = $2, ...` clause plus its param array
+ * from a plain object, so assigning the same column more than once (e.g.
+ * setting isActive both directly and as a side effect of isArchived)
+ * naturally overwrites rather than emitting a second `SET "col" = ...` for
+ * the same column — Postgres rejects duplicate column assignments in one
+ * UPDATE with "multiple assignments to same column".
+ */
+export function buildSetClause(columnValues: Record<string, unknown>, paramOffset = 0): { clause: string; params: unknown[] } {
+  const columns = Object.keys(columnValues);
+  const params = columns.map((col) => columnValues[col]);
+  const clause = columns.map((col, i) => `"${col}" = $${paramOffset + i + 1}`).join(', ');
+  return { clause, params };
+}
+
+/**
  * Runs `fn` inside a single transaction on a dedicated client (BEGIN / COMMIT
  * / ROLLBACK), mirroring Prisma's `$transaction(async (tx) => ...)`.
  */

@@ -55,7 +55,7 @@ export default function SettingsPage() {
         if (d.status_code === 200) {
           setAdmin(d.response_data);
           // Fetch tenant info with logo from backend
-          fetch(`http://localhost:3002/admin/portals/${storedSlug}`)
+          fetch(`http://localhost:3002/api/${storedSlug}/info`)
             .then((r) => r.json())
             .then((td) => {
               setTenantInfo({

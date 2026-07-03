@@ -69,7 +69,7 @@ export default function ProjectDetailPage() {
         setProject(projectRes.response_data);
 
         // Fetch tenant info with logo from backend
-        fetch(`http://localhost:3002/admin/portals/${storedSlug || slug}`)
+        fetch(`http://localhost:3002/api/${storedSlug || slug}/info`)
           .then((r) => r.json())
           .then((d) => {
             setTenantInfo({

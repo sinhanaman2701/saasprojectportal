@@ -42,7 +42,7 @@ export default function TenantDashboard() {
 
     // Fetch tenant info with logo from backend
     if (storedSlug) {
-      fetch(`http://localhost:3002/admin/portals/${storedSlug}`)
+      fetch(`http://localhost:3002/api/${storedSlug}/info`)
         .then((r) => r.json())
         .then((d) => {
           if (d.response_data) {
@@ -161,7 +161,35 @@ export default function TenantDashboard() {
             ))}
           </div>
 
-          <div className="flex-1 max-w-xs" />
+          <div className="flex-1 max-w-xs relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#A8A29E]" />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name or location"
+              className="w-full h-9 pl-9 pr-3 rounded-lg border border-[#E7E5E4] bg-white text-sm text-[#1C1917] placeholder:text-[#A8A29E] focus-visible:border-[#C9A84C] focus-visible:ring-[3px] focus-visible:ring-[#C9A84C]/20 focus-visible:outline-none"
+            />
+          </div>
+
+          <div className="flex gap-1 bg-white border border-[#E7E5E4] rounded-lg p-1">
+            <button
+              type="button"
+              onClick={() => setView("grid")}
+              aria-label="Grid view"
+              className={`p-1.5 rounded-md transition-colors ${view === "grid" ? "bg-[#1C1917] text-white" : "text-[#78716C] hover:text-[#1C1917]"}`}
+            >
+              <Grid size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("list")}
+              aria-label="List view"
+              className={`p-1.5 rounded-md transition-colors ${view === "list" ? "bg-[#1C1917] text-white" : "text-[#78716C] hover:text-[#1C1917]"}`}
+            >
+              <List size={16} />
+            </button>
+          </div>
         </div>
 
         {/* Error */}

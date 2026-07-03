@@ -18,6 +18,17 @@ declare global {
   }
 }
 
+// GET /api/:slug/info — public tenant branding info (name/logo), no auth
+// required. Used by tenant-facing pages (login, dashboard, settings,
+// project create/edit/detail) to render the tenant's name and logo.
+router.get('/:slug/info', tenantMiddleware, async (req, res) => {
+  res.json({
+    status_code: 200,
+    status_message: 'Success',
+    response_data: { name: req.tenant!.name, logoUrl: req.tenant!.logoUrl, slug: req.tenant!.slug },
+  });
+});
+
 // POST /api/:slug/auth/login
 router.post('/:slug/auth/login', tenantMiddleware, async (req, res) => {
   try {

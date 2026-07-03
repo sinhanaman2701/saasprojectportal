@@ -7,7 +7,7 @@ import { createTenantUpload, processUploadedFiles } from '../middleware/upload';
 import { validateProjectData } from '../middleware/tenantProjectValidation';
 import { generatePostmanCollection } from '../utils/postman-generator';
 import { getIconUrl } from '../utils/icon-map';
-import { query, queryOne } from '../lib/db';
+import { query, queryOne, buildSetClause } from '../lib/db';
 
 const router = Router();
 
@@ -534,19 +534,20 @@ router.put('/:slug/projects/:id', tenantAuth, async (req, res) => {
       // Unarchive whenever the project transitions to draft or active via PUT
       const shouldUnarchive = draftChanged || (!newIsDraft && newIsActive && existing.isArchived);
 
-      const sets: string[] = [`data = $1`, `attachments = $2`, `"updatedAt" = now()`];
-      const params: unknown[] = [JSON.stringify(dataObj), JSON.stringify(finalAttachments)];
-      const set = (col: string, val: unknown) => { params.push(val); sets.push(`"${col}" = $${params.length}`); };
+      const columnValues: Record<string, unknown> = {
+        data: JSON.stringify(dataObj),
+        attachments: JSON.stringify(finalAttachments),
+      };
+      if (rawStatus) columnValues.status = rawStatus;
+      if (rawIsDraft !== undefined) columnValues.isDraft = newIsDraft;
+      if (rawIsActive !== undefined) columnValues.isActive = rawIsActive === 'true' || rawIsActive === true;
+      if (draftChanged) columnValues.isActive = newIsActive;
+      if (shouldUnarchive) columnValues.isArchived = false;
 
-      if (rawStatus) set('status', rawStatus);
-      if (rawIsDraft !== undefined) set('isDraft', newIsDraft);
-      if (rawIsActive !== undefined) set('isActive', rawIsActive === 'true' || rawIsActive === true);
-      if (draftChanged) set('isActive', newIsActive);
-      if (shouldUnarchive) set('isArchived', false);
-
+      const { clause, params } = buildSetClause(columnValues);
       params.push(parseInt(id));
       const updated = await queryOne(
-        `UPDATE "TenantProject" SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`,
+        `UPDATE "TenantProject" SET ${clause}, "updatedAt" = now() WHERE id = $${params.length} RETURNING *`,
         params
       );
 
@@ -569,23 +570,21 @@ router.patch('/:slug/projects/:id', tenantAuth, async (req, res) => {
       return res.status(404).json({ status_code: 404, status_message: 'Project not found' });
     }
 
-    const sets: string[] = [`"updatedAt" = now()`];
-    const params: unknown[] = [];
-    const set = (col: string, val: unknown) => { params.push(val); sets.push(`"${col}" = $${params.length}`); };
-
-    if (isActive !== undefined) set('isActive', isActive);
+    const columnValues: Record<string, unknown> = {};
+    if (isActive !== undefined) columnValues.isActive = isActive;
     if (isArchived !== undefined) {
-      set('isArchived', isArchived);
-      if (isArchived) set('isActive', false);
+      columnValues.isArchived = isArchived;
+      if (isArchived) columnValues.isActive = false;
     }
     if (isDraft !== undefined) {
-      set('isDraft', isDraft);
-      if (!isDraft) set('isActive', true);
+      columnValues.isDraft = isDraft;
+      if (!isDraft) columnValues.isActive = true;
     }
 
+    const { clause, params } = buildSetClause(columnValues);
     params.push(parseInt(id));
     const updated = await queryOne(
-      `UPDATE "TenantProject" SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`,
+      `UPDATE "TenantProject" SET ${clause}, "updatedAt" = now() WHERE id = $${params.length} RETURNING *`,
       params
     );
 

@@ -18,11 +18,7 @@ export default function TenantLoginPage() {
   useEffect(() => {
     if (!slug) return;
     // Fetch tenant branding info (public endpoint — no auth needed)
-    fetch(`http://localhost:3002/admin/portals/${slug}`, {
-      headers: { Authorization: `Bearer invalid` },
-    }).catch(() => {});
-    // Try the public tenant info endpoint — if it fails, just show generic
-    fetch(`http://localhost:3002/admin/portals/${slug}`)
+    fetch(`http://localhost:3002/api/${slug}/info`)
       .then((r) => r.json())
       .then((d) => {
         if (d.response_data) {
@@ -45,18 +41,13 @@ export default function TenantLoginPage() {
     setLoading(true);
 
     try {
-      console.log("Logging in to:", `http://localhost:3002/api/${slug}/auth/login`);
-      console.log("Credentials:", { email, password });
-
       const res = await fetch(`http://localhost:3002/api/${slug}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
 
-      console.log("Response status:", res.status);
       const data = await res.json();
-      console.log("Response data:", data);
 
       if (data.status_code !== 200) {
         setError(data.status_message || "Login failed");
@@ -64,19 +55,12 @@ export default function TenantLoginPage() {
         return;
       }
 
-      console.log("Setting localStorage:", {
-        tenantToken: data.response_data.token ? "present" : "missing",
-        tenantEmail: data.response_data.email,
-        tenantSlug: data.response_data.tenantSlug,
-      });
-
       localStorage.setItem("tenantToken", data.response_data.token);
       localStorage.setItem("tenantEmail", data.response_data.email);
       localStorage.setItem("tenantSlug", data.response_data.tenantSlug);
 
       // Force a small delay to ensure localStorage is written
       setTimeout(() => {
-        console.log("Redirecting to:", `/${slug}`);
         router.push(`/${slug}`);
       }, 100);
     } catch (err: any) {

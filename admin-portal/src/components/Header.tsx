@@ -6,7 +6,7 @@ export default function Header() {
   const router = useRouter();
 
   const handleLogout = () => {
-    localStorage.clear();
+    localStorage.removeItem('adminToken');
     router.push('/');
   };
 

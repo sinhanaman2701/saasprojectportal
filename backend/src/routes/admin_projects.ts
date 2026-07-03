@@ -3,7 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import adminAuthMiddleware from '../middleware/auth';
-import { query, queryOne, withTransaction } from '../lib/db';
+import { query, queryOne, withTransaction, buildSetClause } from '../lib/db';
 import { getIconUrl } from '../utils/icon-map';
 
 const router = Router();
@@ -306,27 +306,26 @@ router.patch('/:id', async (req: any, res) => {
     const { isActive, isArchived, isDraft } = req.body;
     const adminId = req.user.id;
 
-    const sets: string[] = [`"updatedBy" = $1`, `"updatedAt" = now()`];
-    const params: unknown[] = [adminId];
-    const set = (col: string, val: unknown) => { params.push(val); sets.push(`"${col}" = $${params.length}`); };
-
-    if (isActive !== undefined) set('isActive', isActive);
+    const columnValues: Record<string, unknown> = {};
+    if (isActive !== undefined) columnValues.isActive = isActive;
     if (isArchived !== undefined) {
-      set('isArchived', isArchived);
-      if (isArchived === true) set('isActive', false);
-      if (isArchived === false) set('isActive', true);
+      columnValues.isArchived = isArchived;
+      if (isArchived === true) columnValues.isActive = false;
+      if (isArchived === false) columnValues.isActive = true;
     }
     if (isDraft !== undefined) {
-      set('isDraft', isDraft);
+      columnValues.isDraft = isDraft;
       if (isDraft === false) {
-        set('isActive', true);
-        set('isArchived', false);
+        columnValues.isActive = true;
+        columnValues.isArchived = false;
       }
     }
 
+    const { clause, params } = buildSetClause(columnValues, 1);
+    params.unshift(adminId);
     params.push(parseInt(id));
     const project = await queryOne(
-      `UPDATE "Project" SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`,
+      `UPDATE "Project" SET "updatedBy" = $1, "updatedAt" = now(), ${clause} WHERE id = $${params.length} RETURNING *`,
       params
     );
     res.status(200).json({ status_code: 200, status_message: "Toggled successfully", response_data: project });

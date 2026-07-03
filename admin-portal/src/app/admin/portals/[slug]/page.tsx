@@ -112,7 +112,6 @@ export default function TenantManagePage({ params }: { params: Promise<{ slug?: 
   const [brandingSaved, setBrandingSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showAdminModal, setShowAdminModal] = useState(false);
-  const [fieldsSaved, setFieldsSaved] = useState(true);
   const [adminForm, setAdminForm] = useState({ email: "", password: "", name: "" });
   const [admins, setAdmins] = useState<Array<{ id: number; email: string; name: string | null; createdAt: string }>>([]);
   const [adminSaving, setAdminSaving] = useState(false);
@@ -635,14 +634,6 @@ export default function TenantManagePage({ params }: { params: Promise<{ slug?: 
                 <p className="text-[#78716C] text-sm mt-0.5">Define the fields that tenant admins will fill out when creating projects.</p>
               </div>
               <div className="flex items-center gap-3">
-                {!fieldsSaved && (
-                  <button
-                    onClick={() => { fetchTenant(); setFieldsSaved(true); }}
-                    className="flex items-center gap-2 h-9 px-4 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors text-sm"
-                  >
-                    <CheckCircle size={14} /> Changes Saved
-                  </button>
-                )}
                 <button
                   onClick={openAddSection}
                   className="flex items-center gap-2 h-9 px-4 bg-white border border-[#E7E5E4] hover:border-[#C9A84C] text-[#1C1917] font-medium rounded-lg transition-colors text-sm"
@@ -1219,10 +1210,14 @@ function ApiConfigTab({ tenantSlug, tenantName }: { tenantSlug: string; tenantNa
     }
   };
 
-  const copyToken = () => {
-    navigator.clipboard.writeText(accessToken);
-    setTokenCopied(true);
-    setTimeout(() => setTokenCopied(false), 2000);
+  const copyToken = async () => {
+    try {
+      await navigator.clipboard.writeText(accessToken);
+      setTokenCopied(true);
+      setTimeout(() => setTokenCopied(false), 2000);
+    } catch (e) {
+      console.error("Failed to copy access token to clipboard", e);
+    }
   };
 
   useEffect(() => {

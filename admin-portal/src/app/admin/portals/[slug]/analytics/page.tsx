@@ -44,8 +44,12 @@ export default function AnalyticsPage({ params }: { params: Promise<{ slug: stri
           setTenant(tenantData.response_data);
         }
 
-        // Fetch stats
-        const statsRes = await fetch(`http://localhost:3002/api/${slug}/projects/stats`);
+        // Fetch stats — this route requires the tenant's own Access-Token
+        // (superadmin JWT isn't accepted here), so use the token we just
+        // fetched off the tenant record.
+        const statsRes = await fetch(`http://localhost:3002/api/${slug}/projects/stats`, {
+          headers: { 'Access-Token': tenantData.response_data?.accessToken || '' },
+        });
         const statsData = await statsRes.json();
         if (statsData.status_code === 200) {
           setStats(statsData.response_data);
