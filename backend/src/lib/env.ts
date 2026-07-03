@@ -16,8 +16,3 @@ if (!secret || secret.length < 32) {
 export const JWT_SECRET: string = secret;
 export const JWT_EXPIRY: string = process.env.JWT_EXPIRY || '7d';
 export type JwtExpiry = `${number}${'s' | 'm' | 'h' | 'd' | 'w' | 'y'}` | number;
-
-// Static bearer token for the legacy (pre-multi-tenant) public mobile API
-// (`/projects/*`). Optional: if unset, those legacy read endpoints are
-// disabled (fail closed) rather than accepting any non-empty header value.
-export const LEGACY_ACCESS_TOKEN: string | undefined = process.env.LEGACY_ACCESS_TOKEN;

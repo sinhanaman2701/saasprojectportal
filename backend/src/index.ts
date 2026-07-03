@@ -11,9 +11,6 @@ import path from 'path';
 import rateLimit from 'express-rate-limit';
 import { logger } from './lib/logger';
 
-import authRoutes from './routes/auth';
-import adminProjectRoutes from './routes/admin_projects';
-import publicProjectRoutes from './routes/public_projects';
 import superadminAuthRoutes from './routes/superadmin_auth';
 import superadminPortalsRoutes from './routes/superadmin_portals';
 import superadminTenantRoutes from './routes/superadmin_tenant';
@@ -50,9 +47,8 @@ const generalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
-// Previously only /api/* was rate limited, leaving /admin/*, /projects/*
-// (legacy tenant-management + legacy public API) completely uncovered.
-app.use(['/api/', '/admin', '/projects'], generalLimiter);
+// Previously only /api/* was rate limited, leaving /admin/* completely uncovered.
+app.use(['/api/', '/admin'], generalLimiter);
 
 // Rate limiting: Auth endpoints (stricter, per IP)
 const authLimiter = rateLimit({
@@ -64,7 +60,6 @@ const authLimiter = rateLimit({
 });
 app.use('/superadmin/auth/login', authLimiter);
 app.use('/api/:slug/auth/login', authLimiter);
-app.use('/admin/auth/login', authLimiter); // legacy admin login (previously unprotected)
 
 // Health Check / Root Route
 app.get('/', (req, res) => {
@@ -91,11 +86,6 @@ if (process.env.STORAGE_TYPE !== 's3') {
 // Icon assets — always served statically (bundled with the codebase, not user uploads)
 app.use('/icons', express.static(path.join(__dirname, '../src/icons')));
 logger.info('Icon assets served at /icons');
-
-// ─── Existing Routes (Backward Compat) ────────────────────────────────────
-app.use('/admin/auth', authRoutes);              // Tenant admin login (existing Kolte & Patil)
-app.use('/admin/projects', adminProjectRoutes);  // Admin project CRUD
-app.use('/projects', publicProjectRoutes);        // Public project listing
 
 // ─── Superadmin Routes ─────────────────────────────────────────────────────
 app.use('/superadmin/auth', superadminAuthRoutes); // Superadmin login/register

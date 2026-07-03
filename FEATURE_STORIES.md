@@ -120,40 +120,33 @@ Not independently live-tested this pass; single-image upload path confirmed, mul
 ### M1–M4 — Tenant-scoped public API (list, detail, stats, postman) — ✅
 Covered by the backend functional smoke test during the security-fix and Prisma-removal phases (32/32 passing), and stats specifically re-verified again in this pass via the Analytics-tab fix.
 
-### M5 — Legacy public mobile API (Access-Token, hardened) — ✅
-Verified in the earlier security-fix pass: bogus token → 401, valid token → 200, click endpoint now requires the token too.
+### M5 — Legacy public mobile API — 🗑️ REMOVED
+Was hardened in the security-fix pass (bogus token → 401, valid token → 200). Removed entirely along with the rest of the legacy area — see the [L] section below for why and what changed.
 
 ---
 
-## [L] Legacy Single-Tenant Area
+## [L] Legacy Single-Tenant Area — 🗑️ REMOVED
 
-> No dedicated login page exists anywhere in the frontend for this area — see X4 below, a significant finding from this pass.
+Following the X4 finding (no reachable login existed anywhere in the frontend) and an explicit decision to remove rather than repair, the entire legacy single-tenant system was deleted:
 
-### L1 — Legacy catalog dashboard — ✅
-Confirmed reachable with **zero auth guard** (no redirect even with `localStorage` fully cleared — matches code review). After manually injecting a real `adminToken` (obtained via direct API login, since no UI exists to do this), the dashboard rendered the seeded "Canvas" project correctly, and the search input actually filtered results (unlike the tenant dashboard's formerly-dead search, this one was always fully wired).
+**Frontend removed:** `src/app/dashboard/`, `src/app/dashboard/[projectname]/`, `src/app/projects/new/`, `src/app/projects/edit/[id]/`, `src/components/Header.tsx`, `public/logo.jpg`.
 
-### L2 — Legacy project detail (marketing-style page) — ✅ (happy path)
-`/dashboard/Canvas` correctly resolved and rendered the project by name.
-**Known issue (unfixed):** name-based lookup collision risk for same-name projects; decorative non-functional "Enquire Now"/"Refer" buttons.
+**Backend removed:** `routes/auth.ts` (`/admin/auth/login`), `routes/admin_projects.ts` (`/admin/projects/*` CRUD), `routes/public_projects.ts` (`/projects/list`, `/projects/:id/click` — the public mobile API), `middleware/auth.ts`, and the corresponding mounts/imports/rate-limit entries in `index.ts`.
 
-### L3 — Legacy project lifecycle actions — 🔲
-Not independently live-tested this pass. Re-confirmed via code read post-rewrite: the "Archive" action, despite calling `DELETE /admin/projects/{id}`, is implemented backend-side as a soft `UPDATE ... SET isArchived = true` — **not** an actual row deletion. This is confusing REST-verb naming but not destructive.
+**Database:** dropped `Project`, `Admin`, `CommunityAmenity`, `PropertyAmenity`, `NearbyPlace` via migration `0002_drop_legacy_single_tenant_tables.sql`. `ProjectStatus` enum kept (still used by `TenantProject.status`).
 
-### L4 — Legacy 3-step "New Listing" wizard — 🔲
-Not independently live-tested this pass (Playwright coverage of this area was scoped down given the higher-value finding that the area has no reachable login in the first place — see X4). Known validation-doesn't-jump-to-step issue remains documented, unfixed.
+**Made obsolete and removed alongside it:** `backend/src/seed.ts` and `backend/src/scripts/backfill-icons.ts`, which only ever touched the legacy tables. `LEGACY_ACCESS_TOKEN` removed from `lib/env.ts` and README.
 
-### L5 — Legacy edit listing (no validation) — 🔲
-Same as L4 — documented, unfixed, deprioritized pending a decision on X4/X1.
+**Pre-removal audit confirmed:** zero foreign-key coupling to `Tenant*` tables, zero references from any new-system page, zero test coverage touching this area (the one test file's mentions of "dashboard" refer to the *tenant* dashboard at `/{slug}`, unrelated). Clean cut.
 
-### L6 — Legacy header/logout — ✅🔧
-**Bug found & fixed:** logout called `localStorage.clear()`, wiping *all* stored keys (including `superadminToken`/`tenantToken` if present in the same browser) rather than just its own `adminToken`. Changed to `localStorage.removeItem('adminToken')`.
+**Verified post-removal:** backend + frontend both typecheck and build clean; `/admin/auth/login`, `/admin/projects`, `/projects/list` all correctly 404; full 29-point backend smoke test still 29/29 (down from 32 — the 3 removed checks were the legacy-specific ones, replaced with checks confirming those routes are gone); `/dashboard` now falls through to the generic `/[slug]` dynamic route exactly like any other nonexistent-tenant path would (not a bug — expected Next.js routing).
 
 ---
 
 ## [X] Cross-Cutting
 
-### X1 — Two parallel, incompatible project-management systems — **Resolved to a stronger finding: see X4**
-The legacy area isn't just parallel — it's provably unreachable through the app's own UI (no login entry point exists). Recommend a deliberate decision: either build the missing legacy login page if this system is meant to stay, or remove the ~2,000 lines of legacy route/page code if it's dead. Left as-is pending that product decision; not something a bug-fix pass should decide unilaterally.
+### X1 — Two parallel, incompatible project-management systems — ✅ Resolved
+Decision made and executed: the legacy system was removed rather than repaired. See the [L] section above.
 
 ### X2 — Auth token validity never verified client-side — confirmed, unfixed
 Both guards check presence only. Architectural change, out of scope for a logistical/UX bug-fix pass; flagged for a deliberate follow-up.
@@ -161,8 +154,8 @@ Both guards check presence only. Architectural change, out of scope for a logist
 ### X3 — Root path redirect — ✅ (behaves as documented)
 Confirmed `/` always redirects to `/admin`. Not a bug — no tenant-facing landing page exists by design, tenants must know their own slug.
 
-### X4 — Legacy area has no reachable login (new finding this pass)
-`grep` across the entire frontend for any `localStorage.setItem('adminToken', ...)` call returns **zero matches** — only 4 pages *read* `adminToken`, nothing ever *writes* it via any UI form. The only way into `/dashboard`, `/dashboard/[name]`, `/projects/new`, `/projects/edit/[id]` is to call `POST /admin/auth/login` directly (curl/Postman) and hand-inject the token into `localStorage`. Combined with X1, this strongly suggests the legacy single-tenant flow is orphaned/leftover from before the multi-tenant system existed. **Not fixed** — building a new login page for a system that might be intended for removal would be a product decision, not a bug fix. Flagging prominently for a decision.
+### X4 — Legacy area has no reachable login — ✅ Resolved (removal, not repair)
+`grep` across the entire frontend for `localStorage.setItem('adminToken', ...)` returned zero matches — only 4 pages *read* `adminToken`, nothing ever *wrote* it via any UI form. Presented this + a full dependency/impact audit; decision was to remove the whole legacy area rather than build a login page for it. Executed — see [L] above.
 
 ---
 
@@ -182,7 +175,9 @@ Confirmed `/` always redirects to `/admin`. Not a bug — no tenant-facing landi
 
 **Confirmed-safe rate-limiter false alarms during testing:** repeated `/admin/auth/login` and `/api/:slug/auth/login` calls across many test runs correctly triggered 429s within the same 15-minute window — this is the security-pass rate-limiter working as designed, not a bug (resolved by restarting the backend between heavy test runs, exactly as a real 15-minute cooldown would).
 
+**Follow-up round:** X1/X4 (legacy area's fate) was escalated as a product decision rather than resolved unilaterally. Decision came back as full removal — executed in a separate pass (backend routes/middleware/scripts, frontend pages/component/asset, and a DB migration dropping the 5 legacy-only tables), preceded by a dependency/impact audit confirming zero coupling to the `Tenant*` system and zero test coverage on the area. Re-verified clean: both apps build/typecheck, full smoke test still green with legacy checks replaced by 404 confirmations.
+
 **Deliberately left unfixed, with reasoning:**
-- Everything requiring a product/design decision rather than a mechanical fix (X1/X4 legacy area fate, restore-clears-draft-flag semantics, hard-coded `status=ONGOING`).
+- Everything requiring a product/design decision rather than a mechanical fix (restore-clears-draft-flag semantics, hard-coded `status=ONGOING`).
 - Everything requiring a new dependency or larger refactor (iframe HTML sanitization, full token-validity verification, asymmetric optimistic-update error handling across Fields tab).
 - Low-severity cosmetic/consistency nits documented but not touched (branding tab's inconsistent save-on-keystroke vs. explicit-save UX, admin password hint without enforcement, register/login button proximity, dev-convenience default credentials).

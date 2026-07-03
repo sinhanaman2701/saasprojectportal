@@ -45,9 +45,6 @@ PORT=3002
 POSTMAN_BASE_URL="http://localhost:3002"
 STORAGE_TYPE=local
 ALLOWED_ORIGINS="http://localhost:3000,http://localhost:3001"
-# Optional: static bearer token for the legacy /projects/* mobile API.
-# Leave unset to disable those endpoints entirely (fail closed).
-LEGACY_ACCESS_TOKEN="a-long-random-string"
 EOF
 
 npm run db:migrate
