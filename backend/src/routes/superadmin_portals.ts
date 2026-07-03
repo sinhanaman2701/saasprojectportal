@@ -74,14 +74,25 @@ router.post('/', async (req, res) => {
         [slug, name, logoUrl || null, accessToken]
       );
 
-      // Seed default fields for the new tenant
-      for (const f of DEFAULT_FIELDS as any[]) {
+      // Seed default fields for the new tenant.
+      // DEFAULT_FIELDS' own `order` property resets to 1 within each
+      // section (by design, so the Fields-tab section view sorts fields
+      // independently per section). That makes it useless as a *global*
+      // sort key for the dynamic form's step ordering, which sorts
+      // sections by their lowest-order field — every section would tie
+      // at 1. Assign a fresh globally-sequential order here instead,
+      // based on DEFAULT_FIELDS' already-correct section-grouped array
+      // position (Property Information, then Project Details, then
+      // Location & Attachments).
+      const defaultFields = DEFAULT_FIELDS as any[];
+      for (let i = 0; i < defaultFields.length; i++) {
+        const f = defaultFields[i];
         await client.query(
           `INSERT INTO "TenantField"
              (key, label, type, section, "order", required, placeholder, options, validation, "showInList", "imageWidth", "imageHeight", "tenantId")
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, $9, $10, $11, $12)`,
           [
-            f.key, f.label, f.type, f.section, f.order, f.required,
+            f.key, f.label, f.type, f.section, i + 1, f.required,
             f.placeholder ?? null,
             f.options ? JSON.stringify(f.options) : null,
             f.showInList,
@@ -164,13 +175,18 @@ router.post('/:slug/fields/seed', async (req, res) => {
 
     // Seed default fields
     await withTransaction(async (client) => {
-      for (const f of DEFAULT_FIELDS as any[]) {
+      // See the comment in the POST / handler above: DEFAULT_FIELDS' own
+      // `order` resets per-section, so a fresh globally-sequential order
+      // is assigned here based on array position instead.
+      const defaultFields = DEFAULT_FIELDS as any[];
+      for (let i = 0; i < defaultFields.length; i++) {
+        const f = defaultFields[i];
         await client.query(
           `INSERT INTO "TenantField"
              (key, label, type, section, "order", required, placeholder, options, validation, "showInList", "imageWidth", "imageHeight", "tenantId")
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, $9, $10, $11, $12)`,
           [
-            f.key, f.label, f.type, f.section, f.order, f.required,
+            f.key, f.label, f.type, f.section, i + 1, f.required,
             f.placeholder ?? null,
             f.options ? JSON.stringify(f.options) : null,
             f.showInList,

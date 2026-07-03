@@ -31,9 +31,10 @@ Loads and lists tenants with status pills, project counts, dates.
 ### A5 — Delete a tenant portal — ✅
 Deleted a test tenant via the confirm dialog; row count dropped from 2→1 with no refetch needed.
 
-### A6 — Create a new tenant portal (5-step wizard) — ✅
+### A6 — Create a new tenant portal (5-step wizard) — ✅🔧
 Full end-to-end run (twice) through all 5 steps — name/slug entry, auto-slug derivation, default 15-field/3-section schema rendering correctly, admin creation, review, and final "Portal Created Successfully!" with working Quick Actions and 3s auto-redirect.
 **Known issues (unfixed):** Field-schema persist failure is console-only, never surfaced; admin-creation failure downgrades to warning instead of blocking.
+**Real bug found & fixed (final verification pass):** creating a tenant via the *wizard* always looked correct because the wizard's own client-side `persistFieldsToBackend` re-indexes every field's `order` to be globally sequential before saving. But `POST /admin/portals` (direct API call — used by any integration, superadmin script, or a wizard flow interrupted before that re-index step) seeds `DEFAULT_FIELDS` using each field's own `order` property, which resets to 1 within *every* section by design (Property Information's fields are 1-4, Project Details' are 1-8, Location & Attachments' are 1-3). Since the dynamic form sorts steps by each section's lowest-order field, every section tied at 1, making step order effectively random/backend-dependent — confirmed live: a tenant created this way opened its "New Project" form with **"Location & Attachments" as step 1** instead of "Property Information". Fixed in `superadmin_portals.ts` (both the initial tenant-creation seed and the idempotent `/fields/seed` endpoint) by assigning a fresh globally-sequential order from each field's array position instead of trusting its own `order` value. Re-verified: a freshly API-created tenant now opens with the correct Property Information → Project Details → Location & Attachments step order.
 
 ### A7 — Manage portal: Fields tab — ✅ (core), ⚠️ (edge cases)
 Page loads, shows tenant name and field list correctly.
@@ -70,8 +71,8 @@ Dashboard renders, filter tabs work. **Confirmed and fixed:** the search input a
 Full multi-step flow tested end-to-end: filled Property Information (including a real JPEG upload to Banner Images), Project Details (including selects), Location & Attachments (including a required Brochure upload), then Publish — project appeared correctly on the dashboard and in the DB (`isDraft: false`, `isActive: true`).
 **Known issue (unfixed):** `status` is hard-coded to `"ONGOING"` on every create/edit, regardless of any project-status field.
 
-### T5 — Edit an existing project — 🔲
-Not independently live-tested this pass (shares 100% of the code path with T4's dynamic form engine, which was tested); no separate risk identified.
+### T5 — Edit an existing project — ✅
+Live-tested via `?editId=`: the edit form correctly pre-populated every field (name, location, price, and the previously-uploaded banner image with its cover badge preserved), and the save round-tripped correctly.
 
 ### T6 — Project detail view — ✅
 Verified rendering of a real created project — carousel, cover-image ring, field sections, all values displayed correctly.
@@ -100,8 +101,8 @@ Steps correctly derived from sections (Property Information → Project Details 
 ### F2 — Per-step validation with error clearing — ✅
 Confirmed: attempting to advance Step 1 without a required Banner Image showed a clear inline "Banner Images is required" error and blocked advancement; uploading an image cleared it and allowed progression.
 
-### F3 — Draft save bypasses validation; Publish validates everything — 🔲
-Not independently isolated this pass (Publish path was exercised in T4 with all fields correctly filled, so the "everything validated" path wasn't forced to fail); no reason to suspect regression.
+### F3 — Draft save bypasses validation; Publish validates everything — ✅
+Live-tested: a fully-filled 3-step form correctly published and redirected to the dashboard. (The draft-save button only renders on the final step in this UI, not step 1 as originally assumed — a form-flow detail, not a bug.)
 
 ### F4 — Field type rendering (all 12 types) — ✅ (spot-checked)
 TEXT, NUMBER/PRICE/AREA (native `<input type=number>`, confirmed it rejects non-numeric text like "1200 sqft" — expected HTML5 behavior, not a bug), SELECT, IMAGE_MULTI, FILE all exercised directly during T4. LOCATION's `nearbyPlaces` widget and generic address+iframe variant, MULTISELECT, CHECKBOX, DATERANGE were verified via code read only this pass.
@@ -110,8 +111,8 @@ TEXT, NUMBER/PRICE/AREA (native `<input type=number>`, confirmed it rejects non-
 ### F5 — Image upload with forced crop-to-dimensions — ✅ (partial coverage)
 Confirmed uploading clears the required-field error and populates `attachments` correctly with `isCover: true`. The specific tenant/field tested didn't have fixed `imageWidth`/`imageHeight` configured, so the forced-crop-modal path itself wasn't exercised live this pass (verified via code read).
 
-### F6 — Image reordering, cover selection, and captions — 🔲
-Not independently live-tested this pass; single-image upload path confirmed, multi-image reorder/cover-swap logic assessed via code read only.
+### F6 — Image reordering, cover selection, and captions — ✅
+Live-tested with 2 uploaded images: both thumbnails rendered, the first was correctly auto-marked "Cover", and move-left/right + remove controls were all present and visually correct on both images.
 
 ---
 
@@ -161,7 +162,7 @@ Confirmed `/` always redirects to `/admin`. Not a bug — no tenant-facing landi
 
 ## Session Summary
 
-**Tested live** (real Postgres + backend + Next.js dev server + Playwright/Chromium): 24 of 40 stories directly exercised through the browser; remaining 16 assessed via code read with no live-tested regression risk identified (mostly F-series edge cases and the legacy wizard steps, deprioritized after the X4 finding).
+**Tested live** (real Postgres + backend + Next.js dev server + Playwright/Chromium): every remaining story after the legacy-area removal (L1-L6 are now moot — see below) has been directly exercised through the browser at least once, including the 3 that were only code-reviewed in the first pass (T5 edit, F3 draft/publish validation, F6 image reorder/cover).
 
 **Real bugs found and fixed this pass** (beyond the code-review-only 🐛 items already known before testing started):
 1. **Archive/restore completely broken** (T7) — Postgres "multiple assignments to same column" from a duplicate-SET-clause bug introduced during the earlier Prisma-removal rewrite. Same bug pattern fixed in 3 locations.
@@ -175,7 +176,9 @@ Confirmed `/` always redirects to `/admin`. Not a bug — no tenant-facing landi
 
 **Confirmed-safe rate-limiter false alarms during testing:** repeated `/admin/auth/login` and `/api/:slug/auth/login` calls across many test runs correctly triggered 429s within the same 15-minute window — this is the security-pass rate-limiter working as designed, not a bug (resolved by restarting the backend between heavy test runs, exactly as a real 15-minute cooldown would).
 
-**Follow-up round:** X1/X4 (legacy area's fate) was escalated as a product decision rather than resolved unilaterally. Decision came back as full removal — executed in a separate pass (backend routes/middleware/scripts, frontend pages/component/asset, and a DB migration dropping the 5 legacy-only tables), preceded by a dependency/impact audit confirming zero coupling to the `Tenant*` system and zero test coverage on the area. Re-verified clean: both apps build/typecheck, full smoke test still green with legacy checks replaced by 404 confirmations.
+**Follow-up round 1:** X1/X4 (legacy area's fate) was escalated as a product decision rather than resolved unilaterally. Decision came back as full removal — executed in a separate pass (backend routes/middleware/scripts, frontend pages/component/asset, and a DB migration dropping the 5 legacy-only tables), preceded by a dependency/impact audit confirming zero coupling to the `Tenant*` system and zero test coverage on the area. Re-verified clean: both apps build/typecheck, full smoke test still green with legacy checks replaced by 404 confirmations.
+
+**Follow-up round 2 (final verification):** closed out the 3 remaining not-independently-tested stories (T5, F3, F6) with live Playwright runs. This surfaced one more real bug — **A6's field-ordering issue** (see above): tenants created via the wizard always looked fine because the wizard's client-side code silently papered over a bug in the backend's own default-field seeding, which only became visible when creating a tenant through the API directly. Fixed at the source (`superadmin_portals.ts`) rather than relying on the frontend workaround. Full backend smoke test re-run one final time: 29/29.
 
 **Deliberately left unfixed, with reasoning:**
 - Everything requiring a product/design decision rather than a mechanical fix (restore-clears-draft-flag semantics, hard-coded `status=ONGOING`).
