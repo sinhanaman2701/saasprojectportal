@@ -1,16 +1,38 @@
-import { Router } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
+import { timingSafeEqual } from 'crypto';
 import prisma from '../lib/prisma';
+import { LEGACY_ACCESS_TOKEN } from '../lib/env';
 
 const router = Router();
 
+// Validates the Access-Token header against LEGACY_ACCESS_TOKEN using a
+// constant-time comparison. Previously this only checked that *some*
+// non-empty header was present, so any string granted full read access.
+function requireLegacyAccessToken(req: Request, res: Response, next: NextFunction) {
+  const token = req.headers['access-token'];
+
+  if (!LEGACY_ACCESS_TOKEN) {
+    return res.status(503).json({ status_code: 503, status_message: 'Legacy mobile API is not configured' });
+  }
+
+  if (typeof token !== 'string' || !token) {
+    return res.status(401).json({ status_code: 401, status_message: 'Unauthorized: Invalid or expired access token' });
+  }
+
+  const provided = Buffer.from(token);
+  const expected = Buffer.from(LEGACY_ACCESS_TOKEN);
+  const isValid = provided.length === expected.length && timingSafeEqual(provided, expected);
+
+  if (!isValid) {
+    return res.status(401).json({ status_code: 401, status_message: 'Unauthorized: Invalid or expired access token' });
+  }
+
+  next();
+}
+
 // Legacy Mobile Payloads
-router.post('/list', async (req, res) => {
+router.post('/list', requireLegacyAccessToken, async (req, res) => {
   try {
-    // The mobile app uniquely sends access headers statically, usually decoded in middleware.
-    const token = req.headers['access-token'];
-    if (!token) {
-      return res.status(401).json({ status_code: 401, status_message: "Unauthorized: Invalid or expired access token" });
-    }
 
     // Spec strings pagination legacy constraint
     const page = parseInt(req.body.page as string || "1");
@@ -102,10 +124,10 @@ router.post('/list', async (req, res) => {
 });
 
 // Analytics Implementation
-router.post('/:id/click', async (req, res) => {
+router.post('/:id/click', requireLegacyAccessToken, async (req, res) => {
   try {
-    const { id } = req.params;
-    
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
     await prisma.project.update({
       where: { id: parseInt(id) },
       data: { clickCount: { increment: 1 } }

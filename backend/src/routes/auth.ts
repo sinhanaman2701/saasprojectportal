@@ -2,10 +2,9 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../lib/prisma';
+import { JWT_SECRET, JWT_EXPIRY, type JwtExpiry } from '../lib/env';
 
 const router = Router();
-
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
 
 router.post('/login', async (req, res) => {
   try {
@@ -21,7 +20,11 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ status_code: 401, status_message: "Unauthorized: Invalid or expired access token" });
     }
 
-    const token = jwt.sign({ id: admin.id, email: admin.email }, JWT_SECRET);
+    const token = jwt.sign(
+      { id: admin.id, email: admin.email },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRY as JwtExpiry }
+    );
 
     res.status(200).json({
       status_code: 200,

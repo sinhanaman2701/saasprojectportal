@@ -5,12 +5,9 @@ import tenantMiddleware from '../middleware/tenant';
 import tenantAuth, { type TenantContext } from '../middleware/tenantAuth';
 import superadminAuth from '../middleware/superadminAuth';
 import prisma from '../lib/prisma';
+import { JWT_SECRET, JWT_EXPIRY, type JwtExpiry } from '../lib/env';
 
 const router = Router();
-
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
-const JWT_EXPIRY = process.env.JWT_EXPIRY || '7d';
-type JwtExpiry = `${number}${'s' | 'm' | 'h' | 'd' | 'w' | 'y'}` | number;
 
 // Extend Express.Request to include user
 declare global {

@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import rateLimit from 'express-rate-limit';
+import { logger } from './lib/logger';
 
 import authRoutes from './routes/auth';
 import adminProjectRoutes from './routes/admin_projects';
@@ -45,7 +46,9 @@ const generalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
-app.use('/api/', generalLimiter);
+// Previously only /api/* was rate limited, leaving /admin/*, /projects/*
+// (legacy tenant-management + legacy public API) completely uncovered.
+app.use(['/api/', '/admin', '/projects'], generalLimiter);
 
 // Rate limiting: Auth endpoints (stricter, per IP)
 const authLimiter = rateLimit({
@@ -57,6 +60,7 @@ const authLimiter = rateLimit({
 });
 app.use('/superadmin/auth/login', authLimiter);
 app.use('/api/:slug/auth/login', authLimiter);
+app.use('/admin/auth/login', authLimiter); // legacy admin login (previously unprotected)
 
 // Health Check / Root Route
 app.get('/', (req, res) => {
@@ -66,23 +70,23 @@ app.get('/', (req, res) => {
   });
 });
 
-// Catch-all: log all requests
+// Catch-all: log all requests (structured, so it's parseable in prod log tooling)
 app.use((req, res, next) => {
-  console.log(`[${req.method}] ${req.path}`);
+  logger.info('request', { method: req.method, path: req.path });
   next();
 });
 
 // Static file serving (only in local storage mode)
 if (process.env.STORAGE_TYPE !== 's3') {
   app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
-  console.log('[INFO] Local file serving enabled at /uploads');
+  logger.info('Local file serving enabled at /uploads');
 } else {
-  console.log('[INFO] S3 storage mode - local file serving disabled');
+  logger.info('S3 storage mode - local file serving disabled');
 }
 
 // Icon assets — always served statically (bundled with the codebase, not user uploads)
 app.use('/icons', express.static(path.join(__dirname, '../src/icons')));
-console.log('[INFO] Icon assets served at /icons');
+logger.info('Icon assets served at /icons');
 
 // ─── Existing Routes (Backward Compat) ────────────────────────────────────
 app.use('/admin/auth', authRoutes);              // Tenant admin login (existing Kolte & Patil)
@@ -99,8 +103,21 @@ app.use('/admin/portals/:slug/fields', superadminFieldsRoutes); // CRUD tenant f
 app.use('/api', tenantAuthRoutes);             // Tenant admin auth: /api/:slug/auth/login
 app.use('/api', tenantProjectRoutes);          // Tenant projects: /api/:slug/projects
 
+// Centralized error handler — catches errors passed via next(err) (e.g. multer
+// fileFilter rejections) so they return a consistent JSON body instead of
+// falling through to Express's default HTML error page, and so stack traces
+// are logged server-side only, never sent to the client.
+app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  logger.error('unhandled request error', { method: req.method, path: req.path, error: err.message, stack: err.stack });
+  const isMulterError = err.name === 'MulterError' || /file type|file size|not allowed/i.test(err.message || '');
+  res.status(isMulterError ? 400 : 500).json({
+    status_code: isMulterError ? 400 : 500,
+    status_message: isMulterError ? err.message : 'Internal Server Error',
+  });
+});
+
 const PORT = process.env.PORT || 3001;
 
 app.listen(PORT, () => {
-  console.log(`SaaS Portal Platform API Server running on port ${PORT}`);
+  logger.info(`SaaS Portal Platform API Server running on port ${PORT}`);
 });

@@ -14,18 +14,15 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1025.0",
+    "@aws-sdk/client-s3": "^3.1079.0",
     "@prisma/client": "^6.19.2",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.3.2",
+    "express-rate-limit": "^8.5.2",
     "jsonwebtoken": "^9.0.3",
-    "multer": "^2.1.1",
-    "pdf-parse": "^2.4.5",
-    "pdfreader": "^3.0.8",
-    "redis": "^5.11.0",
+    "multer": "^2.2.0",
     "sharp": "^0.34.5"
   },
   "devDependencies": {
@@ -39,5 +36,12 @@
     "prisma": "^6.19.2",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.2"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.2": true,
+    "@prisma/engines@6.19.2": true,
+    "prisma@6.19.2": true,
+    "sharp@0.34.5": true,
+    "fsevents@2.3.3": true
   }
 }

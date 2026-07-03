@@ -8,6 +8,10 @@ import { getIconUrl } from '../utils/icon-map';
 
 const router = Router();
 
+// Same allowlist as the tenant upload path (middleware/upload.ts) —
+// this legacy route previously had no MIME/size validation at all.
+const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = path.join(__dirname, '../../uploads');
@@ -19,7 +23,16 @@ const storage = multer.diskStorage({
     cb(null, uniqueSuffix + '-' + file.originalname);
   }
 });
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB per file, matches tenant upload path
+  fileFilter: (req, file, cb) => {
+    if (!ALLOWED_MIME_TYPES.includes(file.mimetype.toLowerCase())) {
+      return cb(new Error(`File type '${file.mimetype}' is not allowed. Allowed types: ${ALLOWED_MIME_TYPES.join(', ')}`));
+    }
+    cb(null, true);
+  },
+});
 
 router.use(adminAuthMiddleware);
 
