@@ -5,6 +5,14 @@ import { IStorage, ProcessedFile } from './types';
 export class LocalStorage implements IStorage {
   private uploadDir = path.join(__dirname, '../../uploads');
 
+  private getExtension(file: ProcessedFile): string {
+    if (file.mimeType === 'image/jpeg' || file.mimeType === 'image/jpg') return '.jpg';
+    if (file.mimeType === 'image/png') return '.png';
+    if (file.mimeType === 'image/webp') return '.webp';
+    if (file.mimeType === 'application/pdf') return '.pdf';
+    return path.extname(file.originalName) || '.bin';
+  }
+
   async upload(file: ProcessedFile, tenantId: number, fieldKey: string): Promise<string> {
     // Create directory: uploads/{tenantId}/{fieldKey}/
     const dir = path.join(this.uploadDir, String(tenantId), fieldKey);
@@ -13,7 +21,7 @@ export class LocalStorage implements IStorage {
     }
 
     // Generate unique filename
-    const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}.jpg`;
+    const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${this.getExtension(file)}`;
     const filePath = path.join(dir, filename);
 
     // Write file

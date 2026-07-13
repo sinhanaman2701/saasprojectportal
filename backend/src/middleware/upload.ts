@@ -65,6 +65,17 @@ const ALLOWED_MIME_TYPES = [
   'application/pdf',
 ];
 
+const IMAGE_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+]);
+
+function isImageMimeType(mimeType: string): boolean {
+  return IMAGE_MIME_TYPES.has(mimeType.toLowerCase());
+}
+
 /**
  * Validates file MIME type and throws error if not allowed
  */
@@ -110,50 +121,68 @@ export async function processUploadedFiles(
   tenantId: number,
   captions?: Record<string, string[]>
 ): Promise<Record<string, { url: string; caption?: string; order: number; isCover: boolean }[]>> {
-  const attachments: Record<string, { url: string; caption?: string; order: number; isCover: boolean }[]> = {};
+  const uniqueFieldKeys = [...new Set(fieldKeys)];
+  const fieldConfigs = new Map(
+    await Promise.all(
+      uniqueFieldKeys.map(async (fieldKey) => {
+        const field = await queryOne<{ type: string; imageWidth: number | null; imageHeight: number | null; allowCaption: boolean }>(
+          `SELECT type, "imageWidth", "imageHeight", "allowCaption" FROM "TenantField" WHERE "tenantId" = $1 AND key = $2`,
+          [tenantId, fieldKey]
+        );
+        return [fieldKey, field] as const;
+      })
+    )
+  );
 
-  for (const fieldKey of fieldKeys) {
-    const matchingFiles = files.filter((f) => f.fieldname === fieldKey);
+  const attachmentEntries = await Promise.all(
+    uniqueFieldKeys.map(async (fieldKey) => {
+      const matchingFiles = files.filter((f) => f.fieldname === fieldKey);
+      const field = fieldConfigs.get(fieldKey);
+      const processedFiles = await Promise.all(
+        matchingFiles.map(async (file, idx) => {
+          validateFileType(file);
 
-    // Fetch field config from DB
-    const field = await queryOne<{ imageWidth: number | null; imageHeight: number | null; allowCaption: boolean }>(
-      `SELECT "imageWidth", "imageHeight", "allowCaption" FROM "TenantField" WHERE "tenantId" = $1 AND key = $2`,
-      [tenantId, fieldKey]
-    );
+          const isImageField = field?.type === 'IMAGE' || field?.type === 'IMAGE_MULTI';
+          let uploadFile: ProcessedFile;
 
-    attachments[fieldKey] = [];
+          if (isImageField) {
+            if (!isImageMimeType(file.mimetype)) {
+              throw new Error(`${file.originalname} must be an image file`);
+            }
+            const processedBuffer = await processImage(
+              file,
+              field?.imageWidth || undefined,
+              field?.imageHeight || undefined
+            );
+            uploadFile = {
+              buffer: processedBuffer,
+              originalName: file.originalname,
+              mimeType: 'image/jpeg',
+              size: processedBuffer.length,
+            };
+          } else {
+            uploadFile = {
+              buffer: file.buffer,
+              originalName: file.originalname,
+              mimeType: file.mimetype,
+              size: file.size,
+            };
+          }
 
-    for (let idx = 0; idx < matchingFiles.length; idx++) {
-      const file = matchingFiles[idx];
-
-      // Process image (crop/resize if dimensions specified)
-      const processedBuffer = await processImage(
-        file,
-        field?.imageWidth || undefined,
-        field?.imageHeight || undefined
+          const publicUrl = await storage.upload(uploadFile, tenantId, fieldKey);
+          return {
+            url: publicUrl,
+            caption: field?.allowCaption ? (captions?.[fieldKey]?.[idx] || undefined) : undefined,
+            order: idx,
+            isCover: idx === 0,
+          };
+        })
       );
+      return [fieldKey, processedFiles] as const;
+    })
+  );
 
-      // Create processed file object
-      const processedFile: ProcessedFile = {
-        buffer: processedBuffer,
-        originalName: file.originalname,
-        mimeType: 'image/jpeg',
-        size: processedBuffer.length,
-      };
-
-      // Upload via storage abstraction
-      const publicUrl = await storage.upload(processedFile, tenantId, fieldKey);
-
-      attachments[fieldKey].push({
-        url: publicUrl,
-        caption: field?.allowCaption ? (captions?.[fieldKey]?.[idx] || undefined) : undefined,
-        order: idx,
-        isCover: idx === 0,
-      });
-    }
-  }
-
-  return attachments;
+  return Object.fromEntries(attachmentEntries);
 }
 
 export function getUploadBaseUrl(req: Request, tenantSlug: string, tenantId?: number): string {

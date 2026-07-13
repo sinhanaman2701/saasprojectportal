@@ -275,6 +275,10 @@ export default function TenantManagePage({ params }: { params: Promise<{ slug?: 
       alert("Label and Key are required");
       return;
     }
+    if ((fieldForm.type === "IMAGE" || fieldForm.type === "IMAGE_MULTI") && (!fieldForm.imageWidth || !fieldForm.imageHeight)) {
+      alert("Image width and height are required for image fields");
+      return;
+    }
 
     const finalKey = fieldForm.key.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
     const maxId = (tenant?.fields || []).length > 0 ? Math.max(...(tenant?.fields || []).map((f) => f.id)) : 0;
@@ -735,32 +739,14 @@ export default function TenantManagePage({ params }: { params: Promise<{ slug?: 
 
             <div className="bg-white rounded-xl border border-[#E7E5E4] p-6 space-y-6">
               <div>
-                <label className="block text-sm font-medium text-[#1C1917] mb-1.5">Portal Name</label>
+                <label className="block text-sm font-medium text-[#1C1917] mb-1.5">Company/Project name</label>
                 <input
                   type="text"
                   value={brandingForm.name}
                   onChange={(e) => setBrandingForm({ ...brandingForm, name: e.target.value })}
                   className={inputClass}
                 />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[#1C1917] mb-1.5">Logo URL</label>
-                <input
-                  type="text"
-                  value={tenant.logoUrl || ""}
-                  onChange={async (e) => {
-                    const token = localStorage.getItem("superadminToken");
-                    await fetch(`http://localhost:3002/admin/portals/${tenantSlug}`, {
-                      method: "PUT",
-                      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-                      body: JSON.stringify({ logoUrl: e.target.value }),
-                    });
-                    fetchTenant();
-                  }}
-                  placeholder="https://example.com/logo.png"
-                  className={inputClass}
-                />
+                <p className="text-xs text-[#A8A29E] mt-1.5">Use the company or project name that should appear in the portal.</p>
               </div>
 
               {brandingSaved && (
@@ -991,7 +977,9 @@ export default function TenantManagePage({ params }: { params: Promise<{ slug?: 
               {(fieldForm.type === "IMAGE" || fieldForm.type === "IMAGE_MULTI") && (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-[#1C1917] mb-1.5">Image Dimensions (optional)</label>
+                    <label className="block text-sm font-medium text-[#1C1917] mb-1.5">
+                      Image Dimensions <span className="text-[#DC2626]">*</span>
+                    </label>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <input
@@ -1019,7 +1007,7 @@ export default function TenantManagePage({ params }: { params: Promise<{ slug?: 
                     <p className="text-xs text-[#A8A29E] mt-1.5">
                       {fieldForm.imageWidth && fieldForm.imageHeight
                         ? `Images will be cropped to ${fieldForm.imageWidth} × ${fieldForm.imageHeight} px`
-                        : 'Leave empty for original size (no crop)'}
+                        : 'Width and height are required so uploaded images can be cropped consistently.'}
                     </p>
                   </div>
 

@@ -66,7 +66,7 @@ export const DEFAULT_FIELDS = [
     section: 'Property Information',
     order: 3,
     required: true,
-    placeholder: '₹ 45 Lac',
+    placeholder: '10000000 or 1cr',
     showInList: true,
   },
   {
@@ -77,6 +77,8 @@ export const DEFAULT_FIELDS = [
     order: 4,
     required: true,
     showInList: false,
+    imageWidth: 360,
+    imageHeight: 270,
   },
 
   // Section 2: Project Details
@@ -148,6 +150,8 @@ export const DEFAULT_FIELDS = [
     order: 7,
     required: false,
     showInList: false,
+    imageWidth: 246,
+    imageHeight: 137,
   },
   {
     key: 'propertyAmenities',

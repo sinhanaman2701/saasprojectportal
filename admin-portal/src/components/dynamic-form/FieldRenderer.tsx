@@ -406,11 +406,22 @@ export default function FieldRenderer({ field, value, attachmentItems, error, on
       }
 
       case "NUMBER":
-      case "PRICE":
       case "AREA":
         return (
           <input
             type="number"
+            value={typeof value === "number" || typeof value === "string" ? value : ""}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={field.placeholder || ""}
+            className={inputClass}
+          />
+        );
+
+      case "PRICE":
+        return (
+          <input
+            type="text"
+            inputMode="decimal"
             value={typeof value === "number" || typeof value === "string" ? value : ""}
             onChange={(e) => onChange(e.target.value)}
             placeholder={field.placeholder || ""}

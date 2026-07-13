@@ -92,23 +92,6 @@ function SortableFieldPreview({ field }: { field: SortableField }) {
   );
 }
 
-function LogoPreview({ url }: { url: string }) {
-  const [error, setError] = useState(false);
-
-  if (error) {
-    return <span className="text-xs text-[#DC2626]">Invalid image URL</span>;
-  }
-
-  return (
-    <img
-      src={url}
-      alt="Logo preview"
-      className="max-h-16"
-      onError={() => setError(true)}
-    />
-  );
-}
-
 export default function NewPortalPage() {
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState<WizardStep>(1);
@@ -120,7 +103,6 @@ export default function NewPortalPage() {
   const [formData, setFormData] = useState({
     name: "",
     slug: "",
-    logoUrl: "",
     adminEmail: "",
     adminPassword: "",
     adminName: "",
@@ -131,8 +113,8 @@ export default function NewPortalPage() {
     // Property Information
     { key: "projectName", label: "Project Name", type: "TEXT", section: "Property Information", order: 1, required: true, showInList: true, placeholder: "Enter project name" },
     { key: "location", label: "Location", type: "TEXT", section: "Property Information", order: 2, required: true, showInList: true, placeholder: "Enter location" },
-    { key: "price", label: "Price", type: "PRICE", section: "Property Information", order: 3, required: true, showInList: true, placeholder: "" },
-    { key: "bannerImages", label: "Banner Images", type: "IMAGE_MULTI", section: "Property Information", order: 4, required: true, showInList: false, placeholder: "" },
+    { key: "price", label: "Price", type: "PRICE", section: "Property Information", order: 3, required: true, showInList: true, placeholder: "10000000 or 1cr" },
+    { key: "bannerImages", label: "Banner Images", type: "IMAGE_MULTI", section: "Property Information", order: 4, required: true, showInList: false, placeholder: "", imageWidth: 360, imageHeight: 270 },
     // Project Details
     { key: "bedrooms", label: "Bedrooms", type: "NUMBER", section: "Project Details", order: 5, required: true, showInList: true, placeholder: "" },
     { key: "bathrooms", label: "Bathrooms", type: "NUMBER", section: "Project Details", order: 6, required: false, showInList: true, placeholder: "" },
@@ -140,7 +122,7 @@ export default function NewPortalPage() {
     { key: "furnishing", label: "Furnishing", type: "SELECT", section: "Project Details", order: 8, required: true, showInList: true, placeholder: "", options: [{ label: "Unfurnished", value: "unfurnished" }, { label: "Semi-Furnished", value: "semi-furnished" }, { label: "Furnished", value: "furnished" }] },
     { key: "projectStatus", label: "Project Status", type: "SELECT", section: "Project Details", order: 9, required: true, showInList: true, placeholder: "", options: [{ label: "New Launch", value: "new_launch" }, { label: "Under Construction", value: "under_construction" }, { label: "Ready to Move", value: "ready_to_move" }] },
     { key: "description", label: "Description", type: "TEXT", section: "Project Details", order: 10, required: true, showInList: false, placeholder: "Enter project description" },
-    { key: "communityAmenities", label: "Community Amenities", type: "IMAGE_MULTI", section: "Project Details", order: 11, required: false, showInList: false, placeholder: "" },
+    { key: "communityAmenities", label: "Community Amenities", type: "IMAGE_MULTI", section: "Project Details", order: 11, required: false, showInList: false, placeholder: "", imageWidth: 246, imageHeight: 137 },
     { key: "propertyAmenities", label: "Property Amenities", type: "MULTISELECT", section: "Project Details", order: 12, required: false, showInList: true, placeholder: "", options: [{ label: "CCTV", value: "cctv" }, { label: "Parking", value: "parking" }, { label: "Security", value: "security" }, { label: "Power Backup", value: "power_backup" }, { label: "Lift", value: "lift" }, { label: "Gym", value: "gym" }, { label: "Pool", value: "pool" }, { label: "Garden", value: "garden" }, { label: "Club House", value: "club_house" }, { label: "Children Play Area", value: "children_play_area" }] },
     // Location & Attachments
     { key: "nearbyPlaces", label: "Nearby Places", type: "LOCATION", section: "Location & Attachments", order: 13, required: false, showInList: false, placeholder: "" },
@@ -332,6 +314,10 @@ export default function NewPortalPage() {
       alert("Label and Key are required");
       return;
     }
+    if ((fieldForm.type === "IMAGE" || fieldForm.type === "IMAGE_MULTI") && (!fieldForm.imageWidth || !fieldForm.imageHeight)) {
+      alert("Image width and height are required for image fields");
+      return;
+    }
 
     const finalKey = fieldForm.key.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
     const maxId = fields.length > 0 ? Math.max(...fields.map((f) => f.id)) : 0;
@@ -456,6 +442,15 @@ export default function NewPortalPage() {
             return false;
           }
         }
+        {
+          const missingDimensions = fields
+            .filter((field) => (field.type === "IMAGE" || field.type === "IMAGE_MULTI") && (!field.imageWidth || !field.imageHeight))
+            .map((field) => field.label);
+          if (missingDimensions.length > 0) {
+            setError(`Image width and height are required for: ${missingDimensions.join(", ")}.`);
+            return false;
+          }
+        }
         break;
       case 4: // Admin
         if (!formData.adminEmail.trim()) {
@@ -544,7 +539,14 @@ export default function NewPortalPage() {
   };
 
   const handleCreate = async () => {
-    if (!validateStep(4)) return;
+    if (!validateStep(3)) {
+      setCurrentStep(3);
+      return;
+    }
+    if (!validateStep(4)) {
+      setCurrentStep(4);
+      return;
+    }
 
     setLoading(true);
     setError("");
@@ -566,7 +568,7 @@ export default function NewPortalPage() {
         body: JSON.stringify({
           name: formData.name,
           slug: formData.slug,
-          logoUrl: formData.logoUrl || null,
+          logoUrl: null,
         }),
       });
 
@@ -581,7 +583,12 @@ export default function NewPortalPage() {
       const accessToken = tenant.accessToken;
 
       // Step 2: Persist field ordering to backend
-      await persistFieldsToBackend(formData.slug, token);
+      const fieldsSaved = await persistFieldsToBackend(formData.slug, token);
+      if (!fieldsSaved) {
+        setError("Portal created, but field setup failed. Please review the image dimensions and try again from the management page.");
+        setLoading(false);
+        return;
+      }
 
       // Step 3: Create admin
       const adminRes = await fetch(`http://localhost:3002/admin/portals/${formData.slug}/admins`, {
@@ -731,7 +738,7 @@ export default function NewPortalPage() {
 
               <div>
                 <label className="block text-sm font-medium text-[#1C1917] mb-1.5">
-                  Portal Name <span className="text-[#DC2626]">*</span>
+                  Company/Project name <span className="text-[#DC2626]">*</span>
                 </label>
                 <input
                   type="text"
@@ -741,7 +748,7 @@ export default function NewPortalPage() {
                   className={inputClass}
                   autoFocus
                 />
-                <p className="text-xs text-[#A8A29E] mt-1.5">This is the display name for the tenant.</p>
+                <p className="text-xs text-[#A8A29E] mt-1.5">This name appears across the admin and tenant portal.</p>
               </div>
 
               <div>
@@ -783,32 +790,23 @@ export default function NewPortalPage() {
             <div className="space-y-6">
               <div>
                 <h2 className="text-lg font-medium text-[#1C1917] mb-1">Branding</h2>
-                <p className="text-sm text-[#A8A29E] mb-6">Add your portal&apos;s branding elements.</p>
+                <p className="text-sm text-[#A8A29E] mb-6">Confirm the name shown across this portal.</p>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-[#1C1917] mb-1.5">
-                  Logo URL <span className="text-[#A8A29E]">(Optional)</span>
+                  Company/Project name <span className="text-[#DC2626]">*</span>
                 </label>
                 <input
-                  type="url"
-                  value={formData.logoUrl}
-                  onChange={(e) => setFormData({ ...formData, logoUrl: e.target.value })}
-                  placeholder="https://example.com/logo.png"
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  placeholder="Kolte & Patil Developers"
                   className={inputClass}
                   autoFocus
                 />
-                <p className="text-xs text-[#A8A29E] mt-1.5">Enter the URL of your logo image. Leave empty to add later.</p>
+                <p className="text-xs text-[#A8A29E] mt-1.5">Use the company or project name that should appear in the portal.</p>
               </div>
-
-              {formData.logoUrl && (
-                <div>
-                  <p className="text-xs text-[#A8A29E] mb-2">Preview:</p>
-                  <div className="bg-[#F5F3EF] rounded-lg p-4 flex items-center justify-center min-h-[80px]">
-                    <LogoPreview url={formData.logoUrl} />
-                  </div>
-                </div>
-              )}
 
               <div className="flex items-center justify-between pt-6">
                 <button
@@ -1028,10 +1026,6 @@ export default function NewPortalPage() {
                     <div>
                       <span className="text-[#A8A29E]">Slug:</span>
                       <span className="ml-2 text-[#1C1917] font-mono">{formData.slug}</span>
-                    </div>
-                    <div>
-                      <span className="text-[#A8A29E]">Logo:</span>
-                      <span className="ml-2 text-[#1C1917]">{formData.logoUrl || "Not set"}</span>
                     </div>
                   </div>
                 </div>
@@ -1325,7 +1319,9 @@ export default function NewPortalPage() {
               {(fieldForm.type === "IMAGE" || fieldForm.type === "IMAGE_MULTI") && (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-[#1C1917] mb-1.5">Image Dimensions (optional)</label>
+                    <label className="block text-sm font-medium text-[#1C1917] mb-1.5">
+                      Image Dimensions <span className="text-[#DC2626]">*</span>
+                    </label>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <input
@@ -1353,7 +1349,7 @@ export default function NewPortalPage() {
                     <p className="text-xs text-[#A8A29E] mt-1.5">
                       {fieldForm.imageWidth && fieldForm.imageHeight
                         ? `Images will be cropped to ${fieldForm.imageWidth} × ${fieldForm.imageHeight} px`
-                        : 'Leave empty for original size (no crop)'}
+                        : 'Width and height are required so uploaded images can be cropped consistently.'}
                     </p>
                   </div>
 

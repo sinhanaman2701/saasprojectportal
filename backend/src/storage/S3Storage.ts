@@ -1,4 +1,5 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import path from 'path';
 import { IStorage, ProcessedFile } from './types';
 
 export class S3Storage implements IStorage {
@@ -18,8 +19,16 @@ export class S3Storage implements IStorage {
     this.cdnUrl = process.env.S3_CDN_URL || `https://${this.bucket}.s3.amazonaws.com`;
   }
 
+  private getExtension(file: ProcessedFile): string {
+    if (file.mimeType === 'image/jpeg' || file.mimeType === 'image/jpg') return '.jpg';
+    if (file.mimeType === 'image/png') return '.png';
+    if (file.mimeType === 'image/webp') return '.webp';
+    if (file.mimeType === 'application/pdf') return '.pdf';
+    return path.extname(file.originalName) || '.bin';
+  }
+
   async upload(file: ProcessedFile, tenantId: number, fieldKey: string): Promise<string> {
-    const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}.jpg`;
+    const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${this.getExtension(file)}`;
     const key = `${tenantId}/${fieldKey}/${filename}`;
 
     await this.s3.send(new PutObjectCommand({

@@ -149,8 +149,17 @@ function validateSingleField(
       break;
     }
 
+    case FieldType.PRICE: {
+      if (typeof value !== 'string' && typeof value !== 'number') {
+        return `${field.label} must be text or a number`;
+      }
+      if (String(value).trim() === '') {
+        return `${field.label} is required`;
+      }
+      break;
+    }
+
     case FieldType.NUMBER:
-    case FieldType.PRICE:
     case FieldType.AREA: {
       const cleaned = String(value).replace(/[^0-9.]/g, '');
       const num = parseFloat(cleaned);

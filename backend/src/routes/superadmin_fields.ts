@@ -16,6 +16,42 @@ const VALID_FIELD_TYPES: FieldType[] = [
   'PRICE', 'AREA', 'DATERANGE',
 ];
 
+type BulkFieldInput = {
+  key: string;
+  label: string;
+  type: string;
+  section: string;
+  order: number;
+  required: boolean;
+  showInList: boolean;
+  placeholder?: string | null;
+  maxLength?: number | null;
+  imageWidth?: number | null;
+  imageHeight?: number | null;
+  allowCaption?: boolean;
+  options?: Array<{ label: string; value: string }> | null;
+};
+
+function isImageField(type: string | undefined | null): boolean {
+  return type === 'IMAGE' || type === 'IMAGE_MULTI';
+}
+
+function validateImageDimensions(type: string, imageWidth: unknown, imageHeight: unknown): string | null {
+  if (!isImageField(type)) return null;
+
+  if (!imageWidth || !imageHeight) {
+    return 'Image width and height are required for image fields';
+  }
+
+  const w = parseInt(String(imageWidth), 10);
+  const h = parseInt(String(imageHeight), 10);
+  if (!Number.isInteger(w) || !Number.isInteger(h) || w < 1 || h < 1 || w > 4096 || h > 4096) {
+    return 'Image dimensions must be between 1 and 4096 pixels';
+  }
+
+  return null;
+}
+
 // GET /admin/portals/:slug/fields — list tenant fields
 router.get('/', async (req, res) => {
   try {
@@ -56,24 +92,12 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Validate dimensions for IMAGE fields.
-    if (type === 'IMAGE' || type === 'IMAGE_MULTI') {
-      if (imageWidth != null || imageHeight != null) {
-        if (!imageWidth || !imageHeight) {
-          return res.status(400).json({
-            status_code: 400,
-            status_message: 'Both width and height must be provided for image fields'
-          });
-        }
-        const w = parseInt(imageWidth, 10);
-        const h = parseInt(imageHeight, 10);
-        if (w < 1 || h < 1 || w > 4096 || h > 4096) {
-          return res.status(400).json({
-            status_code: 400,
-            status_message: 'Dimensions must be between 1 and 4096 pixels'
-          });
-        }
-      }
+    const dimensionError = validateImageDimensions(type, imageWidth, imageHeight);
+    if (dimensionError) {
+      return res.status(400).json({
+        status_code: 400,
+        status_message: dimensionError,
+      });
     }
 
     // Auto-generate key from label if not provided
@@ -121,8 +145,8 @@ router.put('/:fieldId', async (req, res) => {
     const { fieldId } = req.params;
     const { label, type, section, order, required, placeholder, options, validation, showInList, key, maxLength, imageWidth, imageHeight, allowCaption } = req.body;
 
-    const field = await queryOne<{ id: number; key: string }>(
-      `SELECT id, key FROM "TenantField" WHERE id = $1 AND "tenantId" = $2`,
+    const field = await queryOne<{ id: number; key: string; type: FieldType; imageWidth: number | null; imageHeight: number | null }>(
+      `SELECT id, key, type, "imageWidth", "imageHeight" FROM "TenantField" WHERE id = $1 AND "tenantId" = $2`,
       [parseInt(fieldId), req.tenant!.id]
     );
 
@@ -134,37 +158,29 @@ router.put('/:fieldId', async (req, res) => {
       return res.status(400).json({ status_code: 400, status_message: `Invalid field type` });
     }
 
+    const finalType = type ?? field.type;
+
     // Validate section name if provided
     if (section !== undefined && (!section.trim() || section.trim().length === 0)) {
       return res.status(400).json({ status_code: 400, status_message: 'Section name cannot be empty' });
     }
 
     // Validate allowCaption is only set for IMAGE types
-    if (allowCaption !== undefined && type !== 'IMAGE' && type !== 'IMAGE_MULTI') {
+    if (allowCaption !== undefined && !isImageField(finalType)) {
       return res.status(400).json({
         status_code: 400,
         status_message: 'allowCaption can only be set for IMAGE or IMAGE_MULTI fields'
       });
     }
 
-    // Validate dimensions for IMAGE fields.
-    if (type === 'IMAGE' || type === 'IMAGE_MULTI') {
-      if (imageWidth != null || imageHeight != null) {
-        if (!imageWidth || !imageHeight) {
-          return res.status(400).json({
-            status_code: 400,
-            status_message: 'Both width and height must be provided for image fields'
-          });
-        }
-        const w = parseInt(imageWidth, 10);
-        const h = parseInt(imageHeight, 10);
-        if (w < 1 || h < 1 || w > 4096 || h > 4096) {
-          return res.status(400).json({
-            status_code: 400,
-            status_message: 'Dimensions must be between 1 and 4096 pixels'
-          });
-        }
-      }
+    const finalImageWidth = imageWidth !== undefined && imageWidth !== '' ? imageWidth : field.imageWidth;
+    const finalImageHeight = imageHeight !== undefined && imageHeight !== '' ? imageHeight : field.imageHeight;
+    const dimensionError = validateImageDimensions(finalType, finalImageWidth, finalImageHeight);
+    if (dimensionError) {
+      return res.status(400).json({
+        status_code: 400,
+        status_message: dimensionError,
+      });
     }
 
     // Check for key collision if key is being changed
@@ -272,6 +288,16 @@ router.post('/bulk', async (req, res) => {
 
     if (!req.tenant) {
       return res.status(404).json({ status_code: 404, status_message: 'Tenant not found' });
+    }
+
+    for (const field of fields as BulkFieldInput[]) {
+      const dimensionError = validateImageDimensions(field.type, field.imageWidth, field.imageHeight);
+      if (dimensionError) {
+        return res.status(400).json({
+          status_code: 400,
+          status_message: `${field.label || field.key}: ${dimensionError}`,
+        });
+      }
     }
 
     // Upsert all fields in a transaction
